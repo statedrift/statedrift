@@ -531,6 +531,25 @@ function Write-Color {
     }
 }
 
+# Parse JSON without auto-converting ISO 8601 strings to [DateTime]. PS 7.0+
+# heuristically promotes whole-second timestamps like "2026-03-22T10:00:00Z"
+# to DateTime; the canonicalizer would then walk DateTime's properties (Date,
+# TimeOfDay, ...) forever, and even if it terminated the re-emitted string
+# would not match jq's byte-for-byte output in verify.sh. -DateKind String
+# (PS 7.4+) keeps them as strings. PS 5.1 (Windows PowerShell) does not
+# auto-parse dates so no flag is needed.
+function ConvertFromJsonNoDates {
+    param([string]$Json)
+    if ($PSVersionTable.PSEdition -eq 'Core') {
+        if (-not (Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+            Write-Plain 'ERROR: PowerShell 7.0-7.3 has a JSON date-parsing bug that breaks canonical-JSON parity. Use PowerShell 5.1 (Windows PowerShell) or 7.4+.'
+            exit 1
+        }
+        return $Json | ConvertFrom-Json -DateKind String
+    }
+    return $Json | ConvertFrom-Json
+}
+
 # Read manifest
 $ManifestPath = Join-Path $ScriptDir 'manifest.json'
 if (-not (Test-Path $ManifestPath)) {
@@ -538,7 +557,7 @@ if (-not (Test-Path $ManifestPath)) {
     exit 1
 }
 
-$Manifest = Get-Content -Raw -Path $ManifestPath | ConvertFrom-Json
+$Manifest = ConvertFromJsonNoDates -Json (Get-Content -Raw -Path $ManifestPath)
 
 $HostName       = $Manifest.hostname
 $RangeStart     = $Manifest.range_start
@@ -638,8 +657,18 @@ function ConvertTo-CanonicalJson {
     $sb = New-Object System.Text.StringBuilder
     $stack = New-Object 'System.Collections.Generic.Stack[object]'
     [void]$stack.Push(@{ k = 'v'; o = $Root })
+    # Defense in depth: a real 100k-package snapshot is well under 1M frames.
+    # If a future regression turns some .NET type into a self-referencing
+    # walk (the original DateTime bug ate 6 GB before OOM), bail loudly
+    # instead of taking down the host.
+    $maxIters = 10000000
+    $iters = 0
 
     while ($stack.Count -gt 0) {
+        $iters++
+        if ($iters -gt $maxIters) {
+            throw "ConvertTo-CanonicalJson exceeded $maxIters frames; canonicalizer likely hit a non-terminating value type. This is a verify.ps1 bug."
+        }
         $frame = $stack.Pop()
         $kind = $frame.k
 
@@ -675,7 +704,13 @@ function ConvertTo-CanonicalJson {
         } else {
             [void]$sb.Append('{')
             [void]$stack.Push(@{ k = 'l'; o = '}' })
-            $namesArr = [string[]]@($obj.PSObject.Properties.Name)
+            # PSObject.Properties.Name returns $null (not an empty enumerable)
+            # for an empty object. @($null) wraps it as one-element [$null]
+            # and [string[]] then casts $null to "", producing a phantom ""
+            # key. Iterate the Properties collection directly to avoid that.
+            $namesList = New-Object 'System.Collections.Generic.List[string]'
+            foreach ($p in $obj.PSObject.Properties) { [void]$namesList.Add($p.Name) }
+            $namesArr = $namesList.ToArray()
             [Array]::Sort($namesArr, [System.StringComparer]::Ordinal)
             for ($i = $namesArr.Count - 1; $i -ge 0; $i--) {
                 $name = $namesArr[$i]
@@ -693,8 +728,8 @@ function ConvertTo-CanonicalJson {
 function Get-SnapshotHash {
     param([string]$JsonPath)
     $raw = Get-Content -Raw -Path $JsonPath
-    $obj = $raw | ConvertFrom-Json
-    $canonical = ConvertTo-CanonicalJson -Obj $obj
+    $obj = ConvertFromJsonNoDates -Json $raw
+    $canonical = ConvertTo-CanonicalJson -Root $obj
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($canonical)
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
@@ -718,7 +753,7 @@ $BrokenAt = ''
 foreach ($snap in $SnapshotFiles) {
     $filename = $snap.Name
     $rawJson = Get-Content -Raw -Path $snap.FullName
-    $snapObj = $rawJson | ConvertFrom-Json
+    $snapObj = ConvertFromJsonNoDates -Json $rawJson
     $snapPrevHash = [string]$snapObj.prev_hash
     $currentHash = Get-SnapshotHash -JsonPath $snap.FullName
 
