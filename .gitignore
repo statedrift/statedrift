@@ -1,0 +1,13 @@
+bin/
+dist/
+*.tar.gz
+test-config.json
+phase2_progress.md
+CLAUDE.md
+
+# Internal docs not for public repo
+docs/*_by_claude.*
+docs/*-implementation-plan.*
+docs/*-prompt.*
+manual_test_config.txt
+.git.old/

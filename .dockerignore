@@ -1,0 +1,15 @@
+# Keep the Docker build context tight. Only what `go build` needs reaches
+# the builder.
+.git
+.github
+bin
+dist
+docs
+tests
+manual_test_config.txt
+test-config.json
+*.tar.gz
+*.md
+!LICENSE
+Dockerfile
+.dockerignore

@@ -1,0 +1,58 @@
+name: test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false  # stdlib-only project, nothing to cache
+
+      # Fail loudly if pwsh is missing. ubuntu-latest ships pwsh, but if
+      # GitHub ever drops it, TestVerifyPs1ParityWithVerifySh would
+      # silently skip — and a regression in verify.ps1's canonical-JSON
+      # algorithm would ride into a release. The case-fold sort bug
+      # caught on 2026-04-26 is exactly the class of issue this guards
+      # against. Confirm pwsh exists before running tests; if it
+      # disappears, this step fails first and the cause is obvious.
+      - name: Confirm pwsh is on PATH
+        run: pwsh --version
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -d .)
+          if [ -n "$out" ]; then
+            echo "gofmt diff (run 'gofmt -w .' locally):"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # -v so the "--- PASS: TestVerifyPs1ParityWithVerifySh" line shows
+      # up in the workflow log. v0.3.0 release checklist item #9 looks
+      # for that exact line — if you see "--- SKIP" instead, pwsh fell
+      # off the runner and parity isn't being enforced.
+      - name: go test
+        run: go test -v ./...
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Smoke test: just verify the Dockerfile parses and builds. No
+      # push, no registry auth, no image tag worth caring about.
+      # Catches Dockerfile bitrot (unpinned base image disappearing,
+      # build-arg changes, etc.) before a release tag tries to use it.
+      - name: docker build
+        run: docker build -t statedrift:ci .

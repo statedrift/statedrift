@@ -1,0 +1,26 @@
+{
+  "store_path": "/var/lib/statedrift",
+  "interval": "1h",
+  "retention_days": 365,
+  "capture": [
+    "host",
+    "network",
+    "kernel_params",
+    "packages",
+    "services",
+    "listening_ports"
+  ],
+  "ignore": {
+    "interfaces": ["docker0", "veth*", "br-*"],
+    "packages": []
+  },
+  "collectors": {
+    "all": false,
+    "cpu": false,
+    "kernel_counters": false,
+    "processes": false,
+    "sockets": false,
+    "nic_drivers": false
+  },
+  "license_path": "/etc/statedrift/license.json"
+}
