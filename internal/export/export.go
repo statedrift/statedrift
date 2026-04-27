@@ -623,10 +623,11 @@ function ConvertTo-CanonicalJsonString {
 # Iterative canonical-JSON emitter. Walks $Root using an explicit work
 # stack so deeply-nested snapshots don't blow the call stack on pwsh-on-
 # Linux, where each PowerShell function frame carries enough overhead to
-# overflow within a few dozen levels. Frame kinds:
-#   ('v', $obj)  — emit the canonical form of $obj
-#   ('s', $str)  — emit a JSON-escaped string literal
-#   ('l', $text) — append literal text (used for separators / closers)
+# overflow within a few dozen levels. Frames are hashtables (not arrays —
+# PowerShell's @() flattens nested arrays, which would unpack list values
+# into the frame) with two keys:
+#   k = kind: 'v' (value), 's' (string literal), 'l' (literal text)
+#   o = the operand
 # Object keys are sorted with ordinal byte comparison to match Go's
 # sort.Strings and jq -cS. Sort-Object Name is culture-aware AND
 # case-insensitive by default, which produces a different order on
@@ -636,23 +637,23 @@ function ConvertTo-CanonicalJson {
     param($Root)
     $sb = New-Object System.Text.StringBuilder
     $stack = New-Object 'System.Collections.Generic.Stack[object]'
-    [void]$stack.Push(@('v', $Root))
+    [void]$stack.Push(@{ k = 'v'; o = $Root })
 
     while ($stack.Count -gt 0) {
         $frame = $stack.Pop()
-        $kind = $frame[0]
+        $kind = $frame.k
 
         if ($kind -eq 'l') {
-            [void]$sb.Append([string]$frame[1])
+            [void]$sb.Append([string]$frame.o)
             continue
         }
         if ($kind -eq 's') {
-            [void]$sb.Append((ConvertTo-CanonicalJsonString -Value ([string]$frame[1])))
+            [void]$sb.Append((ConvertTo-CanonicalJsonString -Value ([string]$frame.o)))
             continue
         }
 
         # kind = 'v'
-        $obj = $frame[1]
+        $obj = $frame.o
         if ($null -eq $obj) {
             [void]$sb.Append('null')
         } elseif ($obj -is [bool]) {
@@ -665,23 +666,23 @@ function ConvertTo-CanonicalJson {
             [void]$sb.Append($obj.ToString([System.Globalization.CultureInfo]::InvariantCulture))
         } elseif ($obj -is [System.Collections.IList]) {
             [void]$sb.Append('[')
-            [void]$stack.Push(@('l', ']'))
+            [void]$stack.Push(@{ k = 'l'; o = ']' })
             $items = @($obj)
             for ($i = $items.Count - 1; $i -ge 0; $i--) {
-                [void]$stack.Push(@('v', $items[$i]))
-                if ($i -gt 0) { [void]$stack.Push(@('l', ',')) }
+                [void]$stack.Push(@{ k = 'v'; o = $items[$i] })
+                if ($i -gt 0) { [void]$stack.Push(@{ k = 'l'; o = ',' }) }
             }
         } else {
             [void]$sb.Append('{')
-            [void]$stack.Push(@('l', '}'))
+            [void]$stack.Push(@{ k = 'l'; o = '}' })
             $namesArr = [string[]]@($obj.PSObject.Properties.Name)
             [Array]::Sort($namesArr, [System.StringComparer]::Ordinal)
             for ($i = $namesArr.Count - 1; $i -ge 0; $i--) {
                 $name = $namesArr[$i]
-                [void]$stack.Push(@('v', $obj.$name))
-                [void]$stack.Push(@('l', ':'))
-                [void]$stack.Push(@('s', $name))
-                if ($i -gt 0) { [void]$stack.Push(@('l', ',')) }
+                [void]$stack.Push(@{ k = 'v'; o = $obj.$name })
+                [void]$stack.Push(@{ k = 'l'; o = ':' })
+                [void]$stack.Push(@{ k = 's'; o = $name })
+                if ($i -gt 0) { [void]$stack.Push(@{ k = 'l'; o = ',' }) }
             }
         }
     }
