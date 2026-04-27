@@ -72,6 +72,12 @@ release: clean
 	# checksums
 	cd $(DIST) && sha256sum $(BINARY)-$(VERSION)-*.tar.gz > sha256sums.txt
 
+	# Extract just this version's section from CHANGELOG.md so
+	# `gh release create --notes-file dist/release-notes-$(VERSION).md`
+	# doesn't dump the whole changelog into the GitHub release page.
+	awk '/^## \[$(VERSION)\]/{flag=1; print; next} /^## \[/{flag=0} flag' \
+		CHANGELOG.md > $(DIST)/release-notes-$(VERSION).md
+
 	@echo ""
 	@echo "Release artifacts in $(DIST)/:"
 	@ls -lh $(DIST)/

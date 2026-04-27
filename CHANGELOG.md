@@ -25,7 +25,7 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 **Pro license framework** — license file at `/etc/statedrift/license.json` gates Pro features (`analyze`, `report`, `siem`, `hub`, `all`). Free tier covers R01-R10 anomaly rules, all collectors, and all core commands.
 
 **Audit bundles**
-- Windows-native `verify.ps1` shipped alongside `verify.sh`. PowerShell 5.1+ compatible, no external dependencies.
+- Windows-native `verify.ps1` shipped alongside `verify.sh`. Compatible with Windows PowerShell 5.1 or PowerShell 7.5+; no external dependencies. (PowerShell 7.0–7.4 auto-parses JSON date strings in a way that breaks canonical-JSON parity with `verify.sh`; the script exits with a clear version-bump message on those versions.)
 - Both verifiers use ordinal byte-comparison sort for canonical-JSON keys (matches `jq -cS` and Go's `sort.Strings`).
 
 **Integrity hardening**

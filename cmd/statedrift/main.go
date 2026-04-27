@@ -311,7 +311,7 @@ The bundle contains:
   - All snapshot JSON files for the date range
   - manifest.json with metadata and chain verification status
   - verify.sh  — self-contained verifier for Linux / macOS auditors
-  - verify.ps1 — self-contained verifier for Windows auditors (PowerShell 5.1+)
+  - verify.ps1 — self-contained verifier for Windows auditors (PowerShell 5.1 or 7.5+)
   - README.txt — auditor instructions
 
 A Linux/macOS auditor needs only sha256sum and jq. A Windows auditor needs

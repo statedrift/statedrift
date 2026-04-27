@@ -484,16 +484,21 @@ fi
 // internal/hasher.CanonicalJSON exactly: keys sorted at every level,
 // compact, no HTML escaping, no trailing newline.
 //
-// PowerShell 5.1+ compatible (Windows 10/Server 2016+ default), no
-// dependencies on jq, OpenSSL, or anything outside the box.
+// Compatible with Windows PowerShell 5.1 (Windows 10/Server 2016+ default)
+// or PowerShell 7.5+ on any platform; no dependencies on jq, OpenSSL, or
+// anything outside the box. PowerShell 7.0-7.4 auto-parses JSON date
+// strings into [DateTime], which breaks canonical-JSON parity with
+// verify.sh's jq pipeline; the script exits with a clear version-bump
+// message when run on those versions.
 //
 // Note: this Go raw string cannot contain backticks (PowerShell's escape
 // character). The script is deliberately written without backtick escapes.
 func generateVerifyPowerShellScript() string {
 	return `# statedrift Evidence Bundle Verifier (PowerShell)
 # Independently verifies the hash chain integrity of a statedrift export bundle.
-# Compatible with PowerShell 5.1+ (Windows 10/Server 2016 and later) and
-# PowerShell 7+ on any platform. Uses only built-in cmdlets.
+# Compatible with Windows PowerShell 5.1 (Windows 10/Server 2016 and later)
+# or PowerShell 7.5+ on any platform. Uses only built-in cmdlets.
+# PowerShell 7.0-7.4 is not supported (JSON date-parsing breaks parity).
 #
 # Usage:
 #   pwsh ./verify.ps1            # full output
@@ -869,7 +874,8 @@ Linux / macOS:
     Requires: bash, sha256sum, jq (all preinstalled on most distributions;
     on macOS install jq via Homebrew). No statedrift installation needed.
 
-Windows (PowerShell 5.1+, ships with Windows 10 and Server 2016+):
+Windows (Windows PowerShell 5.1, ships with Windows 10 and Server 2016+;
+or PowerShell 7.5+ on any platform):
 
     tar -xzf <bundle>.tar.gz
     cd <bundle>
@@ -878,7 +884,9 @@ Windows (PowerShell 5.1+, ships with Windows 10 and Server 2016+):
     powershell -ExecutionPolicy Bypass -File .\verify.ps1
 
     Requires: only built-in PowerShell cmdlets. No jq, OpenSSL, WSL,
-    or external tools needed.
+    or external tools needed. PowerShell 7.0-7.4 is not supported
+    (JSON date-parsing in those versions breaks canonical-hash parity
+    with verify.sh; the script will exit with a version-bump message).
 
 Both scripts independently recompute every snapshot hash from the canonical
 JSON form and walk the prev_hash chain. They also cross-check
