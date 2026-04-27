@@ -620,43 +620,73 @@ function ConvertTo-CanonicalJsonString {
     return $sb.ToString()
 }
 
+# Iterative canonical-JSON emitter. Walks $Root using an explicit work
+# stack so deeply-nested snapshots don't blow the call stack on pwsh-on-
+# Linux, where each PowerShell function frame carries enough overhead to
+# overflow within a few dozen levels. Frame kinds:
+#   ('v', $obj)  — emit the canonical form of $obj
+#   ('s', $str)  — emit a JSON-escaped string literal
+#   ('l', $text) — append literal text (used for separators / closers)
+# Object keys are sorted with ordinal byte comparison to match Go's
+# sort.Strings and jq -cS. Sort-Object Name is culture-aware AND
+# case-insensitive by default, which produces a different order on
+# mixed-case keys like /proc/net/snmp's "ForwDatagrams" / "Forwarding"
+# and breaks the chain hash.
 function ConvertTo-CanonicalJson {
-    param($Obj)
-    if ($null -eq $Obj) { return 'null' }
-    if ($Obj -is [bool]) {
-        if ($Obj) { return 'true' } else { return 'false' }
-    }
-    if ($Obj -is [string]) {
-        return ConvertTo-CanonicalJsonString -Value $Obj
-    }
-    if ($Obj -is [int] -or $Obj -is [long] -or $Obj -is [int16] -or $Obj -is [byte] -or $Obj -is [uint32] -or $Obj -is [uint64]) {
-        return [string]$Obj
-    }
-    if ($Obj -is [double] -or $Obj -is [single] -or $Obj -is [decimal]) {
-        return $Obj.ToString([System.Globalization.CultureInfo]::InvariantCulture)
-    }
-    if ($Obj -is [System.Collections.IList]) {
-        $parts = New-Object System.Collections.Generic.List[string]
-        foreach ($item in $Obj) {
-            $parts.Add((ConvertTo-CanonicalJson -Obj $item))
+    param($Root)
+    $sb = New-Object System.Text.StringBuilder
+    $stack = New-Object 'System.Collections.Generic.Stack[object]'
+    [void]$stack.Push(@('v', $Root))
+
+    while ($stack.Count -gt 0) {
+        $frame = $stack.Pop()
+        $kind = $frame[0]
+
+        if ($kind -eq 'l') {
+            [void]$sb.Append([string]$frame[1])
+            continue
         }
-        return '[' + ($parts -join ',') + ']'
+        if ($kind -eq 's') {
+            [void]$sb.Append((ConvertTo-CanonicalJsonString -Value ([string]$frame[1])))
+            continue
+        }
+
+        # kind = 'v'
+        $obj = $frame[1]
+        if ($null -eq $obj) {
+            [void]$sb.Append('null')
+        } elseif ($obj -is [bool]) {
+            if ($obj) { [void]$sb.Append('true') } else { [void]$sb.Append('false') }
+        } elseif ($obj -is [string]) {
+            [void]$sb.Append((ConvertTo-CanonicalJsonString -Value $obj))
+        } elseif ($obj -is [int] -or $obj -is [long] -or $obj -is [int16] -or $obj -is [byte] -or $obj -is [uint32] -or $obj -is [uint64]) {
+            [void]$sb.Append([string]$obj)
+        } elseif ($obj -is [double] -or $obj -is [single] -or $obj -is [decimal]) {
+            [void]$sb.Append($obj.ToString([System.Globalization.CultureInfo]::InvariantCulture))
+        } elseif ($obj -is [System.Collections.IList]) {
+            [void]$sb.Append('[')
+            [void]$stack.Push(@('l', ']'))
+            $items = @($obj)
+            for ($i = $items.Count - 1; $i -ge 0; $i--) {
+                [void]$stack.Push(@('v', $items[$i]))
+                if ($i -gt 0) { [void]$stack.Push(@('l', ',')) }
+            }
+        } else {
+            [void]$sb.Append('{')
+            [void]$stack.Push(@('l', '}'))
+            $namesArr = [string[]]@($obj.PSObject.Properties.Name)
+            [Array]::Sort($namesArr, [System.StringComparer]::Ordinal)
+            for ($i = $namesArr.Count - 1; $i -ge 0; $i--) {
+                $name = $namesArr[$i]
+                [void]$stack.Push(@('v', $obj.$name))
+                [void]$stack.Push(@('l', ':'))
+                [void]$stack.Push(@('s', $name))
+                if ($i -gt 0) { [void]$stack.Push(@('l', ',')) }
+            }
+        }
     }
-    # PSCustomObject / map — sort property names with ordinal byte
-    # comparison to match Go's sort.Strings and jq -cS. Sort-Object Name is
-    # culture-aware AND case-insensitive by default, which produces a
-    # different order on mixed-case keys like /proc/net/snmp's
-    # "ForwDatagrams" / "Forwarding" and breaks the chain hash.
-    $names = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($prop in $Obj.PSObject.Properties) { [void]$names.Add($prop.Name) }
-    $namesArr = $names.ToArray()
-    [Array]::Sort($namesArr, [System.StringComparer]::Ordinal)
-    $parts = New-Object System.Collections.Generic.List[string]
-    foreach ($name in $namesArr) {
-        $val = ConvertTo-CanonicalJson -Obj $Obj.$name
-        $parts.Add((ConvertTo-CanonicalJsonString -Value $name) + ':' + $val)
-    }
-    return '{' + ($parts -join ',') + '}'
+
+    return $sb.ToString()
 }
 
 function Get-SnapshotHash {
