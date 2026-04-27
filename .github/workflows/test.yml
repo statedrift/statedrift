@@ -16,15 +16,25 @@ jobs:
           go-version: "1.22"
           cache: false  # stdlib-only project, nothing to cache
 
-      # Fail loudly if pwsh is missing. ubuntu-latest ships pwsh, but if
-      # GitHub ever drops it, TestVerifyPs1ParityWithVerifySh would
-      # silently skip — and a regression in verify.ps1's canonical-JSON
-      # algorithm would ride into a release. The case-fold sort bug
-      # caught on 2026-04-26 is exactly the class of issue this guards
-      # against. Confirm pwsh exists before running tests; if it
-      # disappears, this step fails first and the cause is obvious.
-      - name: Confirm pwsh is on PATH
-        run: pwsh --version
+      # ubuntu-latest ships PS 7.4 (LTS), but verify.ps1 needs
+      # ConvertFrom-Json -DateKind String, which was added in PS 7.5.
+      # Without it, ISO timestamps without fractional seconds parse as
+      # [DateTime] and the canonical-JSON walker recurses on DateTime's
+      # self-referencing properties (Date, TimeOfDay, ...) until OOM.
+      # Install latest stable from Microsoft's apt repo before tests.
+      # If this step fails, TestVerifyPs1ParityWithVerifySh would silently
+      # skip and a verify.ps1 regression would ride into a release —
+      # exactly the class of bug the case-fold sort issue (2026-04-26)
+      # and the date-parse infinite walk (2026-04-27) both belonged to.
+      - name: Install PowerShell 7.5+
+        run: |
+          source /etc/os-release
+          wget -q "https://packages.microsoft.com/config/ubuntu/${VERSION_ID}/packages-microsoft-prod.deb"
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
+          sudo apt-get update -qq
+          sudo apt-get install -y powershell
+          pwsh --version
 
       - name: gofmt
         run: |

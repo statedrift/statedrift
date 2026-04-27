@@ -536,13 +536,13 @@ function Write-Color {
 # to DateTime; the canonicalizer would then walk DateTime's properties (Date,
 # TimeOfDay, ...) forever, and even if it terminated the re-emitted string
 # would not match jq's byte-for-byte output in verify.sh. -DateKind String
-# (PS 7.4+) keeps them as strings. PS 5.1 (Windows PowerShell) does not
+# (PS 7.5+) keeps them as strings. PS 5.1 (Windows PowerShell) does not
 # auto-parse dates so no flag is needed.
 function ConvertFromJsonNoDates {
     param([string]$Json)
     if ($PSVersionTable.PSEdition -eq 'Core') {
         if (-not (Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
-            Write-Plain 'ERROR: PowerShell 7.0-7.3 has a JSON date-parsing bug that breaks canonical-JSON parity. Use PowerShell 5.1 (Windows PowerShell) or 7.4+.'
+            Write-Plain 'ERROR: PowerShell 7.0-7.4 has a JSON date-parsing bug that breaks canonical-JSON parity. Use PowerShell 5.1 (Windows PowerShell) or 7.5+.'
             exit 1
         }
         return $Json | ConvertFrom-Json -DateKind String
