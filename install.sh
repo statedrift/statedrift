@@ -32,6 +32,27 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Verify install destination is writable before downloading anything.
+if [[ -d "$PREFIX" ]]; then
+  if [[ ! -w "$PREFIX" ]]; then
+    echo "Error: $PREFIX is not writable." >&2
+    echo "Re-run with sudo, or pass --prefix to a writable directory (e.g. \$HOME/.local/bin)." >&2
+    exit 1
+  fi
+  if [[ -e "${PREFIX}/statedrift" ]] && [[ ! -w "${PREFIX}/statedrift" ]]; then
+    echo "Error: ${PREFIX}/statedrift exists and is not writable." >&2
+    echo "Re-run with sudo, or pass --prefix to a writable directory (e.g. \$HOME/.local/bin)." >&2
+    exit 1
+  fi
+else
+  PARENT="$(dirname "$PREFIX")"
+  if [[ ! -d "$PARENT" ]] || [[ ! -w "$PARENT" ]]; then
+    echo "Error: cannot create $PREFIX (parent directory missing or not writable)." >&2
+    echo "Re-run with sudo, or pass --prefix to a writable directory (e.g. \$HOME/.local/bin)." >&2
+    exit 1
+  fi
+fi
+
 # Detect architecture.
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -115,11 +136,6 @@ if [[ ! -d "$PREFIX" ]]; then
 fi
 
 INSTALL_PATH="${PREFIX}/statedrift"
-if [[ -f "$INSTALL_PATH" ]] && [[ ! -w "$INSTALL_PATH" ]]; then
-  echo "Error: $INSTALL_PATH is not writable. Try running with sudo." >&2
-  exit 1
-fi
-
 cp statedrift "${INSTALL_PATH}"
 chmod 755 "${INSTALL_PATH}"
 
