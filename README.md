@@ -10,23 +10,42 @@ During an incident, nobody can agree on what the network config looked like befo
 
 Statedrift solves this by recording what your infrastructure actually is — not just what it should be — with a tamper-evident hash chain that makes retroactive edits detectable.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash
+```
+
+Linux only (amd64 and arm64). Requires `curl` (or `wget`), `tar`, and `sha256sum`. The installer pulls the [latest GitHub release](https://github.com/statedrift/statedrift/releases/latest), verifies its SHA-256 checksum, and installs to `/usr/local/bin`.
+
+Pin a specific version, or install to a user-writable prefix without sudo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash -s -- --version 0.2.0
+curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash -s -- --prefix "$HOME/.local/bin"
+```
+
+To build from source instead:
+
+```bash
+make build
+sudo cp bin/statedrift /usr/local/bin/
+```
+
 ## Quick start
 
 ```bash
-# Build from source
-make build
-
 # Initialize the store (takes genesis snapshot)
-sudo ./bin/statedrift init
+sudo statedrift init
 
 # Take a snapshot after making a change
-sudo ./bin/statedrift snap
+sudo statedrift snap
 
 # See what changed
-./bin/statedrift diff HEAD~1 HEAD
+statedrift diff HEAD~1 HEAD
 
 # Verify the entire chain hasn't been tampered with
-./bin/statedrift verify
+statedrift verify
 ```
 
 ### Optional: shell alias
