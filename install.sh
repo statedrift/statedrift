@@ -32,6 +32,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Required tools that have no fallback (curl/wget is checked separately later
+# because either one works).
+for tool in tar sha256sum; do
+  if ! command -v "$tool" &>/dev/null; then
+    echo "Error: required tool '$tool' is not installed." >&2
+    exit 1
+  fi
+done
+
 # Verify install destination is writable before downloading anything.
 if [[ -d "$PREFIX" ]]; then
   if [[ ! -w "$PREFIX" ]]; then
@@ -96,6 +105,9 @@ if [[ -z "${VERSION}" ]]; then
   fi
   echo "  Latest: v${VERSION}"
 fi
+
+# Normalize: accept "v0.2.0" or "0.2.0" for --version / $STATEDRIFT_VERSION.
+VERSION="${VERSION#v}"
 
 TARBALL="statedrift-${VERSION}-${OS}-${ARCH}.tar.gz"
 CHECKSUM_URL="${BASE_URL}/v${VERSION}/sha256sums.txt"
