@@ -241,6 +241,41 @@ func TestEvaluatePhaseARulesAreFreeTier(t *testing.T) {
 	}
 }
 
+// --- v0.3 Phase E: R23_MOUNT_ADDED, R24_MOUNT_REMOVED, R25_MOUNT_OPTIONS_CHANGED ---
+
+func TestEvaluateR23MountAdded(t *testing.T) {
+	changes := []Change{{Section: "mounts", Type: "added", Key: "/mnt/share"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R23_MOUNT_ADDED") {
+		t.Error("expected R23_MOUNT_ADDED to fire on mounts added")
+	}
+}
+
+func TestEvaluateR24MountRemoved(t *testing.T) {
+	changes := []Change{{Section: "mounts", Type: "removed", Key: "/mnt/share"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R24_MOUNT_REMOVED") {
+		t.Error("expected R24_MOUNT_REMOVED to fire on mounts removed")
+	}
+}
+
+func TestEvaluateR25MountOptionsChanged(t *testing.T) {
+	// ro → rw flip on /data should fire R25.
+	changes := []Change{{Section: "mounts", Type: "modified", Key: "/data.mount_options",
+		OldValue: "nosuid,ro", NewValue: "nosuid,rw"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R25_MOUNT_OPTIONS_CHANGED") {
+		t.Error("expected R25_MOUNT_OPTIONS_CHANGED to fire on options modification")
+	}
+}
+
+func TestEvaluatePhaseERulesAreFreeTier(t *testing.T) {
+	for _, id := range []string{"R23_MOUNT_ADDED", "R24_MOUNT_REMOVED", "R25_MOUNT_OPTIONS_CHANGED"} {
+		for _, r := range DefaultRules() {
+			if r.ID == id && r.Pro {
+				t.Errorf("%s should be free-tier (Pro=false)", id)
+			}
+		}
+	}
+}
+
 func containsRule(findings []Finding, id string) bool {
 	for _, f := range findings {
 		if f.Rule.ID == id {

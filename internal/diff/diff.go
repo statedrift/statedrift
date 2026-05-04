@@ -62,6 +62,9 @@ func Compare(old, new *collector.Snapshot) *Result {
 	diffGroups(old.Groups, new.Groups, r)
 	diffSudoers(old.Sudoers, new.Sudoers, r)
 
+	// v0.3 Phase E.
+	diffMounts(old.Mounts, new.Mounts, r)
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)
@@ -680,6 +683,55 @@ func diffSudoers(old, new []collector.SudoEntry, r *Result) {
 		if _, exists := oldSet[key]; !exists {
 			r.Changes = append(r.Changes, Change{"sudoers", "added", key,
 				"", fmt.Sprintf("%s: %s", e.Source, e.Line), false})
+		}
+	}
+}
+
+// diffMounts compares /proc/self/mountinfo entries keyed by mount point.
+// Bind mounts targeting the same point with different sources are
+// disambiguated by source as a secondary key. Per-field modifications are
+// emitted so rules can target a specific kind of change via key-pattern.
+func diffMounts(old, new []collector.Mount, r *Result) {
+	mountKey := func(m collector.Mount) string {
+		return m.MountPoint + "\t" + m.Source
+	}
+	oldMap := make(map[string]collector.Mount)
+	for _, m := range old {
+		oldMap[mountKey(m)] = m
+	}
+	newMap := make(map[string]collector.Mount)
+	for _, m := range new {
+		newMap[mountKey(m)] = m
+	}
+
+	for key, om := range oldMap {
+		nm, exists := newMap[key]
+		if !exists {
+			r.Changes = append(r.Changes, Change{"mounts", "removed", om.MountPoint,
+				fmt.Sprintf("source=%s fs=%s opts=%s", om.Source, om.FSType, om.MountOptions), "", false})
+			continue
+		}
+		if om.Source != nm.Source {
+			r.Changes = append(r.Changes, Change{"mounts", "modified", om.MountPoint + ".source",
+				om.Source, nm.Source, false})
+		}
+		if om.FSType != nm.FSType {
+			r.Changes = append(r.Changes, Change{"mounts", "modified", om.MountPoint + ".fs_type",
+				om.FSType, nm.FSType, false})
+		}
+		if om.MountOptions != nm.MountOptions {
+			r.Changes = append(r.Changes, Change{"mounts", "modified", om.MountPoint + ".mount_options",
+				om.MountOptions, nm.MountOptions, false})
+		}
+		if om.SuperOptions != nm.SuperOptions {
+			r.Changes = append(r.Changes, Change{"mounts", "modified", om.MountPoint + ".super_options",
+				om.SuperOptions, nm.SuperOptions, false})
+		}
+	}
+	for key, nm := range newMap {
+		if _, exists := oldMap[key]; !exists {
+			r.Changes = append(r.Changes, Change{"mounts", "added", nm.MountPoint,
+				"", fmt.Sprintf("source=%s fs=%s opts=%s", nm.Source, nm.FSType, nm.MountOptions), false})
 		}
 	}
 }

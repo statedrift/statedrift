@@ -798,6 +798,17 @@ func cmdShow(s *store.Store) {
 		}
 	}
 
+	// Mounts — count all, but only enumerate real-storage and network mounts.
+	// Virtual filesystems (tmpfs, proc, sysfs, overlay, cgroup, etc.) are
+	// signaled by source == fstype and are usually noise for audit purposes.
+	fmt.Printf("\nMounts: %d entries\n", len(snap.Mounts))
+	for _, m := range snap.Mounts {
+		if m.Source == m.FSType {
+			continue
+		}
+		fmt.Printf("  %-32s %-10s %-32s %s\n", m.MountPoint, m.FSType, m.Source, m.MountOptions)
+	}
+
 	// Surface non-fatal collector errors so users notice missing sections.
 	if len(snap.CollectorErrors) > 0 {
 		fmt.Println("\nCollector errors:")

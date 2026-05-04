@@ -249,6 +249,31 @@ func DefaultRules() []Rule {
 			Section:     "sudoers",
 			ChangeType:  "any",
 		},
+		// v0.3 Phase E — mounts (free tier)
+		{
+			ID:          "R23_MOUNT_ADDED",
+			Name:        "New filesystem mount",
+			Description: "A new entry appeared in /proc/self/mountinfo. New mounts can introduce data-exfiltration channels (CIFS/NFS to external hosts) or write paths around hardening.",
+			Severity:    SeverityHigh,
+			Section:     "mounts",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R24_MOUNT_REMOVED",
+			Name:        "Filesystem unmounted",
+			Description: "A mount disappeared from /proc/self/mountinfo. Benign on shutdown; suspicious during steady-state operation.",
+			Severity:    SeverityMedium,
+			Section:     "mounts",
+			ChangeType:  "removed",
+		},
+		{
+			ID:          "R25_MOUNT_OPTIONS_CHANGED",
+			Name:        "Mount options changed",
+			Description: "Mount options or super-block options changed (e.g. ro→rw, dropping nosuid/nodev/noexec). Security-relevant flips are exactly what this rule flags.",
+			Severity:    SeverityHigh,
+			Section:     "mounts",
+			ChangeType:  "modified",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",

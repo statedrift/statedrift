@@ -646,3 +646,85 @@ func TestDiffSudoersUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// --- v0.3 Phase E: mounts ---
+
+func TestDiffMountsAdded(t *testing.T) {
+	old := baseSnapshot()
+	new := baseSnapshot()
+	new.Mounts = []collector.Mount{
+		{Source: "//server/share", MountPoint: "/mnt/share", FSType: "cifs", MountOptions: "relatime,rw"},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "mounts", "added", "/mnt/share") {
+		t.Errorf("expected mounts added '/mnt/share', got %+v", r.Changes)
+	}
+}
+
+func TestDiffMountsRemoved(t *testing.T) {
+	old := baseSnapshot()
+	old.Mounts = []collector.Mount{
+		{Source: "//server/share", MountPoint: "/mnt/share", FSType: "cifs"},
+	}
+	new := baseSnapshot()
+	r := Compare(old, new)
+	if !hasChange(r, "mounts", "removed", "/mnt/share") {
+		t.Errorf("expected mounts removed '/mnt/share'")
+	}
+}
+
+func TestDiffMountsOptionFlip(t *testing.T) {
+	// ro → rw is exactly the kind of change R25 should catch.
+	old := baseSnapshot()
+	old.Mounts = []collector.Mount{
+		{Source: "/dev/sda1", MountPoint: "/data", FSType: "ext4", MountOptions: "nosuid,ro"},
+	}
+	new := baseSnapshot()
+	new.Mounts = []collector.Mount{
+		{Source: "/dev/sda1", MountPoint: "/data", FSType: "ext4", MountOptions: "nosuid,rw"},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "mounts", "modified", "/data.mount_options") {
+		t.Errorf("expected mounts modified '/data.mount_options', got %+v", r.Changes)
+	}
+}
+
+func TestDiffMountsFSTypeChange(t *testing.T) {
+	old := baseSnapshot()
+	old.Mounts = []collector.Mount{
+		{Source: "tmpfs", MountPoint: "/run", FSType: "tmpfs"},
+	}
+	new := baseSnapshot()
+	new.Mounts = []collector.Mount{
+		{Source: "tmpfs", MountPoint: "/run", FSType: "ramfs"},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "mounts", "modified", "/run.fs_type") {
+		t.Errorf("expected mounts modified '/run.fs_type'")
+	}
+}
+
+func TestDiffMountsBindMountsKeyedByPointAndSource(t *testing.T) {
+	// Two bind mounts targeting the same mount point with different sources
+	// must be tracked separately, not merged.
+	old := baseSnapshot()
+	old.Mounts = []collector.Mount{
+		{Source: "/dev/sda1", MountPoint: "/data", FSType: "ext4"},
+		{Source: "/dev/sdb1", MountPoint: "/data", FSType: "ext4"},
+	}
+	new := baseSnapshot()
+	new.Mounts = []collector.Mount{
+		{Source: "/dev/sda1", MountPoint: "/data", FSType: "ext4"},
+	}
+	r := Compare(old, new)
+	// /dev/sdb1 → /data should appear as removed; /dev/sda1 → /data should be unchanged.
+	removedFound := false
+	for _, c := range r.Changes {
+		if c.Section == "mounts" && c.Type == "removed" && strings.Contains(c.OldValue, "/dev/sdb1") {
+			removedFound = true
+		}
+	}
+	if !removedFound {
+		t.Errorf("expected removed change for /dev/sdb1 bind mount, got %+v", r.Changes)
+	}
+}

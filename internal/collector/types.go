@@ -29,11 +29,12 @@ type Snapshot struct {
 	MulticastGroups []MulticastGroup `json:"multicast_groups,omitempty"`
 	Connections     []Connection     `json:"connections,omitempty"`
 
-	// v0.3 security signals (Phase A). Always-on when capture allowlist permits.
+	// v0.3 security signals (Phases A, E). Always-on when capture allowlist permits.
 	// omitempty for backward compatibility with v0.1/v0.2 snapshots that lack these fields.
 	Users   []User      `json:"users,omitempty"`
 	Groups  []Group     `json:"groups,omitempty"`
 	Sudoers []SudoEntry `json:"sudoers,omitempty"`
+	Mounts  []Mount     `json:"mounts,omitempty"`
 
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
@@ -205,6 +206,19 @@ type Group struct {
 type SudoEntry struct {
 	Source string `json:"source"` // "/etc/sudoers" or "/etc/sudoers.d/<name>"
 	Line   string `json:"line"`
+}
+
+// Mount is a single entry from /proc/self/mountinfo. Options carry the
+// security-relevant flags (rw/ro, nosuid, nodev, noexec). Credential-bearing
+// option keys (password, credentials, cred) are stripped at collect time per
+// the project redaction policy; remote-mount sources (server:/share) are
+// kept verbatim as Category B identifiers (redactable at export in v0.4).
+type Mount struct {
+	Source       string `json:"source"`        // /dev/sda1, tmpfs, server:/share, etc.
+	MountPoint   string `json:"mount_point"`   // /, /home, /mnt/foo
+	FSType       string `json:"fs_type"`       // ext4, tmpfs, cifs, overlay
+	MountOptions string `json:"mount_options"` // sorted, comma-joined; credentials stripped
+	SuperOptions string `json:"super_options"` // sorted, comma-joined; credentials stripped
 }
 
 // Connection is an established or outbound-pending TCP connection.
