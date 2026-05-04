@@ -78,6 +78,7 @@ func Default() *Config {
 		Capture: []string{
 			"host", "network", "kernel_params",
 			"packages", "services", "listening_ports", "multicast",
+			"users", "groups", "sudoers",
 		},
 		DisplayTZ: "UTC",
 	}
@@ -148,6 +149,7 @@ func loadFile(cfg *Config, path string) error {
 var knownCaptureSections = map[string]bool{
 	"host": true, "network": true, "kernel_params": true,
 	"packages": true, "services": true, "listening_ports": true, "multicast": true,
+	"users": true, "groups": true, "sudoers": true,
 }
 
 // knownSectionNames is the set of valid keys for section_intervals.
@@ -155,6 +157,7 @@ var knownCaptureSections = map[string]bool{
 var knownSectionNames = map[string]bool{
 	"host": true, "network": true, "kernel_params": true,
 	"packages": true, "services": true, "listening_ports": true, "multicast": true,
+	"users": true, "groups": true, "sudoers": true,
 	"cpu": true, "kernel_counters": true, "processes": true,
 	"sockets": true, "nic_drivers": true, "connections": true,
 }

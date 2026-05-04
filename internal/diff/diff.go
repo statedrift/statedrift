@@ -57,6 +57,11 @@ func Compare(old, new *collector.Snapshot) *Result {
 	// Multicast groups
 	diffMulticastGroups(old.MulticastGroups, new.MulticastGroups, r)
 
+	// v0.3 Phase A security signals.
+	diffUsers(old.Users, new.Users, r)
+	diffGroups(old.Groups, new.Groups, r)
+	diffSudoers(old.Sudoers, new.Sudoers, r)
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)
@@ -561,6 +566,120 @@ func diffConnections(old, new []collector.Connection, r *Result) {
 	for key, nc := range newSet {
 		if _, exists := oldSet[key]; !exists {
 			r.Changes = append(r.Changes, Change{"connections", "added", key, "", connLabel(nc), false})
+		}
+	}
+}
+
+// diffUsers compares /etc/passwd entries keyed by name. Modifications are
+// emitted per field (alice.uid, alice.shell, etc.) so rules can target a
+// specific kind of change via key-pattern.
+func diffUsers(old, new []collector.User, r *Result) {
+	oldMap := make(map[string]collector.User)
+	for _, u := range old {
+		oldMap[u.Name] = u
+	}
+	newMap := make(map[string]collector.User)
+	for _, u := range new {
+		newMap[u.Name] = u
+	}
+
+	for name, ou := range oldMap {
+		nu, exists := newMap[name]
+		if !exists {
+			r.Changes = append(r.Changes, Change{"users", "removed", name,
+				fmt.Sprintf("uid=%d gid=%d shell=%s", ou.UID, ou.GID, ou.Shell), "", false})
+			continue
+		}
+		if ou.UID != nu.UID {
+			r.Changes = append(r.Changes, Change{"users", "modified", name + ".uid",
+				fmt.Sprintf("%d", ou.UID), fmt.Sprintf("%d", nu.UID), false})
+		}
+		if ou.GID != nu.GID {
+			r.Changes = append(r.Changes, Change{"users", "modified", name + ".gid",
+				fmt.Sprintf("%d", ou.GID), fmt.Sprintf("%d", nu.GID), false})
+		}
+		if ou.GECOS != nu.GECOS {
+			r.Changes = append(r.Changes, Change{"users", "modified", name + ".gecos",
+				ou.GECOS, nu.GECOS, false})
+		}
+		if ou.Home != nu.Home {
+			r.Changes = append(r.Changes, Change{"users", "modified", name + ".home",
+				ou.Home, nu.Home, false})
+		}
+		if ou.Shell != nu.Shell {
+			r.Changes = append(r.Changes, Change{"users", "modified", name + ".shell",
+				ou.Shell, nu.Shell, false})
+		}
+	}
+	for name, nu := range newMap {
+		if _, exists := oldMap[name]; !exists {
+			r.Changes = append(r.Changes, Change{"users", "added", name,
+				"", fmt.Sprintf("uid=%d gid=%d shell=%s", nu.UID, nu.GID, nu.Shell), false})
+		}
+	}
+}
+
+// diffGroups compares /etc/group entries keyed by name. Member-set changes are
+// emitted as a single modification with comma-joined old/new lists; GID changes
+// are emitted separately.
+func diffGroups(old, new []collector.Group, r *Result) {
+	oldMap := make(map[string]collector.Group)
+	for _, g := range old {
+		oldMap[g.Name] = g
+	}
+	newMap := make(map[string]collector.Group)
+	for _, g := range new {
+		newMap[g.Name] = g
+	}
+
+	for name, og := range oldMap {
+		ng, exists := newMap[name]
+		if !exists {
+			r.Changes = append(r.Changes, Change{"groups", "removed", name,
+				fmt.Sprintf("gid=%d members=[%s]", og.GID, strings.Join(og.Members, ",")), "", false})
+			continue
+		}
+		if og.GID != ng.GID {
+			r.Changes = append(r.Changes, Change{"groups", "modified", name + ".gid",
+				fmt.Sprintf("%d", og.GID), fmt.Sprintf("%d", ng.GID), false})
+		}
+		oldMembers := strings.Join(og.Members, ",")
+		newMembers := strings.Join(ng.Members, ",")
+		if oldMembers != newMembers {
+			r.Changes = append(r.Changes, Change{"groups", "modified", name + ".members",
+				oldMembers, newMembers, false})
+		}
+	}
+	for name, ng := range newMap {
+		if _, exists := oldMap[name]; !exists {
+			r.Changes = append(r.Changes, Change{"groups", "added", name,
+				"", fmt.Sprintf("gid=%d members=[%s]", ng.GID, strings.Join(ng.Members, ",")), false})
+		}
+	}
+}
+
+// diffSudoers compares sudoers entries keyed by source+line. The line text is
+// part of the key, so any change to a line shows up as a removed+added pair —
+// callers see exactly which rules were added or taken away.
+func diffSudoers(old, new []collector.SudoEntry, r *Result) {
+	oldSet := make(map[string]collector.SudoEntry)
+	for _, e := range old {
+		oldSet[e.Source+"\t"+e.Line] = e
+	}
+	newSet := make(map[string]collector.SudoEntry)
+	for _, e := range new {
+		newSet[e.Source+"\t"+e.Line] = e
+	}
+	for key, e := range oldSet {
+		if _, exists := newSet[key]; !exists {
+			r.Changes = append(r.Changes, Change{"sudoers", "removed", key,
+				fmt.Sprintf("%s: %s", e.Source, e.Line), "", false})
+		}
+	}
+	for key, e := range newSet {
+		if _, exists := oldSet[key]; !exists {
+			r.Changes = append(r.Changes, Change{"sudoers", "added", key,
+				"", fmt.Sprintf("%s: %s", e.Source, e.Line), false})
 		}
 	}
 }

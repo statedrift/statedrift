@@ -545,3 +545,104 @@ func TestDiffOptionalNilBothSides(t *testing.T) {
 		}
 	}
 }
+
+// --- v0.3 Phase A: users / groups / sudoers ---
+
+func TestDiffUsersAdded(t *testing.T) {
+	old := baseSnapshot()
+	new := baseSnapshot()
+	new.Users = []collector.User{{Name: "alice", UID: 1000, GID: 1000, Shell: "/bin/bash"}}
+	r := Compare(old, new)
+	if !hasChange(r, "users", "added", "alice") {
+		t.Errorf("expected users added 'alice', got %+v", r.Changes)
+	}
+}
+
+func TestDiffUsersRemoved(t *testing.T) {
+	old := baseSnapshot()
+	old.Users = []collector.User{{Name: "alice", UID: 1000, GID: 1000, Shell: "/bin/bash"}}
+	new := baseSnapshot()
+	r := Compare(old, new)
+	if !hasChange(r, "users", "removed", "alice") {
+		t.Errorf("expected users removed 'alice', got %+v", r.Changes)
+	}
+}
+
+func TestDiffUsersModifiedPerField(t *testing.T) {
+	old := baseSnapshot()
+	old.Users = []collector.User{{Name: "alice", UID: 1000, GID: 1000, Shell: "/bin/bash", Home: "/home/alice"}}
+	new := baseSnapshot()
+	new.Users = []collector.User{{Name: "alice", UID: 0, GID: 1000, Shell: "/bin/zsh", Home: "/home/alice"}}
+	r := Compare(old, new)
+	if !hasChange(r, "users", "modified", "alice.uid") {
+		t.Errorf("expected users modified 'alice.uid'")
+	}
+	if !hasChange(r, "users", "modified", "alice.shell") {
+		t.Errorf("expected users modified 'alice.shell'")
+	}
+	if hasChange(r, "users", "modified", "alice.home") {
+		t.Errorf("did not expect users modified 'alice.home' (unchanged)")
+	}
+}
+
+func TestDiffGroupsMembership(t *testing.T) {
+	old := baseSnapshot()
+	old.Groups = []collector.Group{{Name: "wheel", GID: 10, Members: []string{"alice"}}}
+	new := baseSnapshot()
+	new.Groups = []collector.Group{{Name: "wheel", GID: 10, Members: []string{"alice", "bob"}}}
+	r := Compare(old, new)
+	if !hasChange(r, "groups", "modified", "wheel.members") {
+		t.Errorf("expected groups modified 'wheel.members', got %+v", r.Changes)
+	}
+}
+
+func TestDiffGroupsAddedRemoved(t *testing.T) {
+	old := baseSnapshot()
+	old.Groups = []collector.Group{{Name: "old-team", GID: 100}}
+	new := baseSnapshot()
+	new.Groups = []collector.Group{{Name: "new-team", GID: 101}}
+	r := Compare(old, new)
+	if !hasChange(r, "groups", "removed", "old-team") {
+		t.Errorf("expected groups removed 'old-team'")
+	}
+	if !hasChange(r, "groups", "added", "new-team") {
+		t.Errorf("expected groups added 'new-team'")
+	}
+}
+
+func TestDiffSudoersAddedRemoved(t *testing.T) {
+	old := baseSnapshot()
+	old.Sudoers = []collector.SudoEntry{
+		{Source: "/etc/sudoers", Line: "Defaults env_reset"},
+		{Source: "/etc/sudoers", Line: "%wheel ALL=(ALL) ALL"},
+	}
+	new := baseSnapshot()
+	new.Sudoers = []collector.SudoEntry{
+		{Source: "/etc/sudoers", Line: "Defaults env_reset"},
+		{Source: "/etc/sudoers.d/oncall", Line: "%oncall ALL=(ALL) NOPASSWD: /opt/scripts/page.sh"},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "sudoers", "removed", "") {
+		t.Errorf("expected sudoers removed change for %%wheel rule")
+	}
+	if !hasChange(r, "sudoers", "added", "") {
+		t.Errorf("expected sudoers added change for /etc/sudoers.d/oncall rule")
+	}
+}
+
+func TestDiffSudoersUnchanged(t *testing.T) {
+	entries := []collector.SudoEntry{
+		{Source: "/etc/sudoers", Line: "Defaults env_reset"},
+		{Source: "/etc/sudoers", Line: "%wheel ALL=(ALL) ALL"},
+	}
+	old := baseSnapshot()
+	old.Sudoers = entries
+	new := baseSnapshot()
+	new.Sudoers = entries
+	r := Compare(old, new)
+	for _, c := range r.Changes {
+		if c.Section == "sudoers" {
+			t.Errorf("unexpected sudoers change: %+v", c)
+		}
+	}
+}

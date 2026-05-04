@@ -224,6 +224,31 @@ func DefaultRules() []Rule {
 			ChangeType:  "modified",
 			KeyPattern:  "boot_id",
 		},
+		// v0.3 Phase A — security signals (free tier)
+		{
+			ID:          "R14_USER_ADDED",
+			Name:        "New user account",
+			Description: "A new entry was added to /etc/passwd. New accounts created outside a change window may be backdoors.",
+			Severity:    SeverityHigh,
+			Section:     "users",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R15_USER_MODIFIED",
+			Name:        "User account modified",
+			Description: "A user's UID, GID, GECOS, home directory, or login shell changed. Privilege-escalation-specific rules are deferred to a follow-up; this is the catch-all.",
+			Severity:    SeverityMedium,
+			Section:     "users",
+			ChangeType:  "modified",
+		},
+		{
+			ID:          "R16_SUDOERS_MODIFIED",
+			Name:        "Sudoers configuration changed",
+			Description: "A line was added or removed in /etc/sudoers or /etc/sudoers.d/. Sudoers controls privilege escalation; any change is high-signal.",
+			Severity:    SeverityCritical,
+			Section:     "sudoers",
+			ChangeType:  "any",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",

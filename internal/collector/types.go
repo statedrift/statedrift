@@ -9,6 +9,11 @@ import "time"
 // Optional collectors (CPU, KernelCounters, Processes, Sockets, NICDrivers) are nil
 // when not enabled in config. Old snapshots without these fields deserialize cleanly.
 type Snapshot struct {
+	// SchemaVersion is set on snapshots produced by v0.3+ binaries.
+	// Defensive metadata so future schema changes can be detected without
+	// guessing from the presence of fields.
+	SchemaVersion string `json:"schema_version,omitempty"`
+
 	Version    string    `json:"version"`
 	SnapshotID string    `json:"snapshot_id"`
 	Timestamp  time.Time `json:"timestamp"`
@@ -23,6 +28,12 @@ type Snapshot struct {
 
 	MulticastGroups []MulticastGroup `json:"multicast_groups,omitempty"`
 	Connections     []Connection     `json:"connections,omitempty"`
+
+	// v0.3 security signals (Phase A). Always-on when capture allowlist permits.
+	// omitempty for backward compatibility with v0.1/v0.2 snapshots that lack these fields.
+	Users   []User      `json:"users,omitempty"`
+	Groups  []Group     `json:"groups,omitempty"`
+	Sudoers []SudoEntry `json:"sudoers,omitempty"`
 
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
@@ -166,6 +177,34 @@ type NICDriver struct {
 type MulticastGroup struct {
 	Interface string `json:"interface"`
 	Group     string `json:"group"` // human-readable IP address (IPv4 or IPv6)
+}
+
+// User is an entry from /etc/passwd. The password hash field (`x` placeholder)
+// is intentionally not collected — we never read /etc/shadow.
+// GECOS is Category B PII (kept verbatim in the chain, redactable at export
+// via planned v0.4 flags).
+type User struct {
+	Name  string `json:"name"`
+	UID   int    `json:"uid"`
+	GID   int    `json:"gid"`
+	GECOS string `json:"gecos"`
+	Home  string `json:"home"`
+	Shell string `json:"shell"`
+}
+
+// Group is an entry from /etc/group. Members is sorted for stable hashing.
+type Group struct {
+	Name    string   `json:"name"`
+	GID     int      `json:"gid"`
+	Members []string `json:"members"`
+}
+
+// SudoEntry is a single non-comment, non-blank line from a sudoers file with
+// provenance. Line is normalized: leading/trailing whitespace trimmed, internal
+// runs collapsed to single spaces, and backslash-newline continuations folded.
+type SudoEntry struct {
+	Source string `json:"source"` // "/etc/sudoers" or "/etc/sudoers.d/<name>"
+	Line   string `json:"line"`
 }
 
 // Connection is an established or outbound-pending TCP connection.

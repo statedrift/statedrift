@@ -775,6 +775,36 @@ func cmdShow(s *store.Store) {
 	for name, state := range snap.Services {
 		fmt.Printf("  %-40s %s\n", name, state)
 	}
+
+	// Users — count only; full list available via `show --json | jq .users`.
+	fmt.Printf("\nUsers: %d in /etc/passwd\n", len(snap.Users))
+
+	// Groups — count + the subset with non-empty member lists, since member
+	// composition (especially of privileged groups) is the audit-relevant signal.
+	fmt.Printf("\nGroups: %d in /etc/group\n", len(snap.Groups))
+	for _, g := range snap.Groups {
+		if len(g.Members) > 0 {
+			fmt.Printf("  %-20s gid=%-6d members=%s\n", g.Name, g.GID, strings.Join(g.Members, ","))
+		}
+	}
+
+	// Sudoers — full dump. Small, security-critical.
+	if len(snap.Sudoers) == 0 {
+		fmt.Println("\nSudoers: (none collected — requires root, see collector_errors)")
+	} else {
+		fmt.Printf("\nSudoers: %d entries\n", len(snap.Sudoers))
+		for _, e := range snap.Sudoers {
+			fmt.Printf("  [%s] %s\n", e.Source, e.Line)
+		}
+	}
+
+	// Surface non-fatal collector errors so users notice missing sections.
+	if len(snap.CollectorErrors) > 0 {
+		fmt.Println("\nCollector errors:")
+		for _, e := range snap.CollectorErrors {
+			fmt.Printf("  %s\n", e)
+		}
+	}
 }
 
 func cmdDiff(s *store.Store) {

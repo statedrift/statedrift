@@ -199,3 +199,53 @@ func TestLoadFileAddsNewRule(t *testing.T) {
 		t.Errorf("expected %d rules (defaults + 1 custom), got %d", len(DefaultRules())+1, len(loaded))
 	}
 }
+
+// --- v0.3 Phase A: R14_USER_ADDED, R15_USER_MODIFIED, R16_SUDOERS_MODIFIED ---
+
+func TestEvaluateR14UserAdded(t *testing.T) {
+	changes := []Change{{Section: "users", Type: "added", Key: "alice"}}
+	findings := Evaluate(DefaultRules(), changes, false)
+	if !containsRule(findings, "R14_USER_ADDED") {
+		t.Errorf("expected R14_USER_ADDED in findings, got %+v", findings)
+	}
+}
+
+func TestEvaluateR15UserModified(t *testing.T) {
+	changes := []Change{{Section: "users", Type: "modified", Key: "alice.uid", OldValue: "1000", NewValue: "0"}}
+	findings := Evaluate(DefaultRules(), changes, false)
+	if !containsRule(findings, "R15_USER_MODIFIED") {
+		t.Errorf("expected R15_USER_MODIFIED in findings, got %+v", findings)
+	}
+}
+
+func TestEvaluateR16SudoersModified(t *testing.T) {
+	// R16 uses change_type "any" — both added and removed should fire it.
+	addedChanges := []Change{{Section: "sudoers", Type: "added", Key: "/etc/sudoers.d/oncall\t%oncall ALL=(ALL) NOPASSWD: /opt/scripts/page.sh"}}
+	if !containsRule(Evaluate(DefaultRules(), addedChanges, false), "R16_SUDOERS_MODIFIED") {
+		t.Errorf("expected R16 to fire on added sudoers entry")
+	}
+	removedChanges := []Change{{Section: "sudoers", Type: "removed", Key: "/etc/sudoers\t%wheel ALL=(ALL) ALL"}}
+	if !containsRule(Evaluate(DefaultRules(), removedChanges, false), "R16_SUDOERS_MODIFIED") {
+		t.Errorf("expected R16 to fire on removed sudoers entry")
+	}
+}
+
+func TestEvaluatePhaseARulesAreFreeTier(t *testing.T) {
+	// R14/R15/R16 must fire without a Pro license.
+	for _, id := range []string{"R14_USER_ADDED", "R15_USER_MODIFIED", "R16_SUDOERS_MODIFIED"} {
+		for _, r := range DefaultRules() {
+			if r.ID == id && r.Pro {
+				t.Errorf("%s should be free-tier (Pro=false)", id)
+			}
+		}
+	}
+}
+
+func containsRule(findings []Finding, id string) bool {
+	for _, f := range findings {
+		if f.Rule.ID == id {
+			return true
+		}
+	}
+	return false
+}

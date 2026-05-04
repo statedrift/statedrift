@@ -60,10 +60,11 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 	now := time.Now().UTC()
 
 	snap := &Snapshot{
-		Version:    Version,
-		SnapshotID: fmt.Sprintf("snap-%s-%s-%s", now.Format("20060102"), now.Format("150405"), randomHex(3)),
-		Timestamp:  now,
-		PrevHash:   prevHash,
+		SchemaVersion: SchemaVersionV03,
+		Version:       Version,
+		SnapshotID:    fmt.Sprintf("snap-%s-%s-%s", now.Format("20060102"), now.Format("150405"), randomHex(3)),
+		Timestamp:     now,
+		PrevHash:      prevHash,
 	}
 
 	var collectorErrors []string
@@ -133,6 +134,31 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		if err != nil {
 			snap.MulticastGroups = []MulticastGroup{}
 			collectorErrors = append(collectorErrors, fmt.Sprintf("multicast: %v", err))
+		}
+	}
+
+	// v0.3 Phase A security signals — always-on when capture allowlist permits.
+	if captures(cfg, "users") {
+		snap.Users, err = collectUsers()
+		if err != nil {
+			snap.Users = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("users: %v", err))
+		}
+	}
+
+	if captures(cfg, "groups") {
+		snap.Groups, err = collectGroups()
+		if err != nil {
+			snap.Groups = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("groups: %v", err))
+		}
+	}
+
+	if captures(cfg, "sudoers") {
+		snap.Sudoers, err = collectSudoers()
+		if err != nil {
+			snap.Sudoers = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("sudoers: %v", err))
 		}
 	}
 
@@ -209,6 +235,7 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 	// Fields are only ever reassigned (never mutated in-place), so sharing
 	// the underlying backing arrays with prevSnap is safe.
 	snap := *prevSnap
+	snap.SchemaVersion = SchemaVersionV03
 	snap.Version = Version
 	snap.SnapshotID = fmt.Sprintf("snap-%s-%s-%s", now.Format("20060102"), now.Format("150405"), randomHex(3))
 	snap.Timestamp = now
@@ -282,6 +309,30 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.MulticastGroups = []MulticastGroup{}
 			collectorErrors = append(collectorErrors, fmt.Sprintf("multicast: %v", err))
+		}
+	}
+
+	if due["users"] && captures(cfg, "users") {
+		snap.Users, err = collectUsers()
+		if err != nil {
+			snap.Users = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("users: %v", err))
+		}
+	}
+
+	if due["groups"] && captures(cfg, "groups") {
+		snap.Groups, err = collectGroups()
+		if err != nil {
+			snap.Groups = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("groups: %v", err))
+		}
+	}
+
+	if due["sudoers"] && captures(cfg, "sudoers") {
+		snap.Sudoers, err = collectSudoers()
+		if err != nil {
+			snap.Sudoers = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("sudoers: %v", err))
 		}
 	}
 
