@@ -399,7 +399,7 @@ Status legend: ✅ verified on 2026-05-04 · ☐ recommended, not yet run.
 1. ✅ **Genesis includes mounts.** `statedrift init` (no sudo
    needed; /proc/self/mountinfo is world-readable). Inspect
    `.mounts` count and a few entries in JSON. Verified: 38 entries
-   on RHEL test host, escaped paths (`/run/media/ibu/My Passport`)
+   on RHEL test host, escaped paths (`/run/media/&lt;user&gt;/External Drive`)
    correctly unescaped, options sorted alphabetically.
 2. ✅ **`source == fstype` filter in show.** RHEL test host renders
    8 entries in the human-readable Mounts block (the audit-relevant
@@ -432,7 +432,7 @@ Status legend: ✅ verified on 2026-05-04 · ☐ recommended, not yet run.
    `TestDiffMountsBindMountsKeyedByPointAndSource`.
 8. ☐ **Escaped whitespace in mountpoints.** Already covered by
    `TestParseMountinfoLineEscapedMountpoint` and observed live with
-   `/run/media/ibu/My Passport`.
+   `/run/media/&lt;user&gt;/External Drive`.
 
 ### Verified during Phase E development
 
