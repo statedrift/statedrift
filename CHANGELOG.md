@@ -7,6 +7,99 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
+## [0.3.0] — Unreleased
+
+Free-tier value bump: five new always-on security-signal collectors, 12 new
+free anomaly rules (R14–R25), and a reusable secret-pattern redactor.
+
+### Added
+
+**Always-on security-signal collectors** — enabled by default in
+`capture` (no config change needed). All five collectors are world-readable
+where possible, fall back to best-effort on per-source permission errors,
+and use stdlib only (no new external commands).
+
+- `users`, `groups`, `sudoers` (Phase A) — `/etc/passwd`, `/etc/group`, and
+  `/etc/sudoers` + `/etc/sudoers.d/*` with whitespace-normalized,
+  comment-folded lines.
+- `modules` (Phase B) — loaded kernel modules from `/proc/modules`. Captures
+  Name, Size, and sorted Dependencies; drops RefCount (varies constantly),
+  State, and load address (zeros under kASLR for non-root). A name
+  reappearing with a changed Size signals a `.ko` file replacement.
+- `ssh_keys` (Phase C) — authorized_keys for every user listed in
+  `/etc/passwd`, including service accounts in `/var/lib/*`. The base64
+  public-key body is **never** stored in the chain — we hash it (SHA256,
+  OpenSSH `SHA256:base64nopad` form) at collect time and discard the
+  body. Captures `(user, type, fingerprint, comment, options)` only;
+  forced-command options pass through the secret redactor. Recognizes
+  the closed set of OpenSSH keytypes including signed user certificates.
+- `cron`, `timers` (Phase D) — cron jobs from `/etc/crontab`, `/etc/cron.d/*`,
+  and `/var/spool/cron/*` (RHEL + Debian layouts), and systemd `.timer`
+  units from `/etc/systemd/system` and `/usr/lib/systemd/system` with
+  documented unit-file precedence (etc overrides lib). Read directly from
+  unit files rather than via `systemctl list-timers` to avoid the noisy
+  last-/next-run timestamps that would dominate the diff. Cron command
+  bodies pass through the secret redactor.
+- `mounts` (Phase E) — `/proc/self/mountinfo` with `password=` /
+  `credentials=` / `cred=` option keys stripped at collect time per the
+  Cat A redaction policy. Mount options sorted alphabetically for stable
+  hashing across kernel versions; bind mounts to the same point with
+  different sources are diff-tracked separately.
+
+**Twelve new free-tier anomaly rules** (R01–R10 unchanged from v0.2):
+- `R14_USER_ADDED` (high), `R15_USER_MODIFIED` (medium), `R16_SUDOERS_MODIFIED` (critical, fires on any change)
+- `R17_MODULE_LOADED` (high), `R18_MODULE_REMOVED` (medium)
+- `R19_SSH_KEY_ADDED` (critical), `R20_SSH_KEY_REMOVED` (medium)
+- `R21_CRON_MODIFIED` (high, fires on any change), `R22_TIMER_MODIFIED` (high, fires on any change)
+- `R23_MOUNT_ADDED` (high), `R24_MOUNT_REMOVED` (medium), `R25_MOUNT_OPTIONS_CHANGED` (high — catches `ro`→`rw` flips, dropped `nosuid`/`nodev`/`noexec`)
+
+**Reusable secret-pattern redactor** (`internal/collector/redact.go`)
+- Drops inline credentials matching common KEY=value patterns (PASSWORD,
+  PASSWD, SECRET, TOKEN, AUTH, CREDENTIAL, PRIVATE_KEY) — case-insensitive
+  on the key, supporting prefixed names like `MYSQL_PASSWORD` and
+  `AWS_SECRET_ACCESS_KEY`.
+- Drops known token formats: AWS access keys (`AKIA[0-9A-Z]{16}`), GitHub
+  PATs (`ghp_`/`ghs_`/`gho_`/`ghu_`/`ghr_`), and `Authorization: Bearer`
+  tokens.
+- Applied to cron command bodies, SSH `command=` forced-command options,
+  and any future free-text capture (kernel cmdline planned for v0.4).
+
+**Schema metadata**
+- New `schema_version: "0.3"` field on snapshots produced by v0.3+ binaries.
+  Cheap (~10 lines), doesn't affect the chain or hash, and lets future
+  schema changes be detected without guessing from field presence. Old
+  v0.1/v0.2 snapshots without the field still verify and diff cleanly.
+
+### Changed
+
+- `capture` allowlist now includes `users`, `groups`, `sudoers`, `mounts`,
+  `modules`, `cron`, `timers`, `ssh_keys` by default. Existing user
+  configs that override `capture` will continue to work; sections not
+  listed in the override remain unset (omitempty), preserving the v0.2
+  shape.
+- Per-source permission errors during multi-source reads (notably
+  `/var/spool/cron` mode 0700 root-only and per-user `~/.ssh/authorized_keys`
+  mode 0600) are silently skipped rather than aborting the entire
+  section. Production runs as root see everything; non-root snaps now
+  capture the world-readable subset instead of returning empty.
+
+### Security
+
+- Cron command bodies and SSH forced-command options are redacted at
+  collect time. `MYSQL_PASSWORD=hunter2 backup.sh` in `/etc/cron.d/`
+  becomes `MYSQL_PASSWORD=<redacted> backup.sh` in the snapshot — the
+  secret never enters the chain. Best-effort: novel secret formats not
+  in the pattern list will not be caught; document and expand the
+  pattern list in `internal/collector/redact.go` rather than handling
+  redaction at multiple sites.
+- SSH public-key bodies (the base64 blob after the keytype) are hashed
+  to a SHA256 fingerprint at collect time and discarded. The body
+  itself is never recorded. `TestParseAuthorizedKeysLineNeverContainsBody`
+  enforces this invariant and rejects substrings of length ≥ 30 chars
+  from the body in any output field.
+
+---
+
 ## [0.2.0] — 2026-04-26
 
 ### Added
