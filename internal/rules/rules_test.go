@@ -276,6 +276,40 @@ func TestEvaluatePhaseERulesAreFreeTier(t *testing.T) {
 	}
 }
 
+// --- v0.3 Phase D: R21_CRON_MODIFIED, R22_TIMER_MODIFIED ---
+
+func TestEvaluateR21CronAddedFires(t *testing.T) {
+	changes := []Change{{Section: "cron", Type: "added", Key: "/etc/cron.d/new"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R21_CRON_MODIFIED") {
+		t.Error("expected R21_CRON_MODIFIED to fire on cron added")
+	}
+}
+
+func TestEvaluateR21CronRemovedFires(t *testing.T) {
+	changes := []Change{{Section: "cron", Type: "removed", Key: "/etc/crontab"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R21_CRON_MODIFIED") {
+		t.Error("expected R21_CRON_MODIFIED to fire on cron removed (any-type rule)")
+	}
+}
+
+func TestEvaluateR22TimerOnCalendarChangeFires(t *testing.T) {
+	changes := []Change{{Section: "timers", Type: "modified", Key: "/etc/systemd/system/foo.timer.on_calendar",
+		OldValue: "weekly", NewValue: "daily"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R22_TIMER_MODIFIED") {
+		t.Error("expected R22_TIMER_MODIFIED to fire on timer modified")
+	}
+}
+
+func TestEvaluatePhaseDRulesAreFreeTier(t *testing.T) {
+	for _, id := range []string{"R21_CRON_MODIFIED", "R22_TIMER_MODIFIED"} {
+		for _, r := range DefaultRules() {
+			if r.ID == id && r.Pro {
+				t.Errorf("%s should be free-tier (Pro=false)", id)
+			}
+		}
+	}
+}
+
 // --- v0.3 Phase B: R17_MODULE_LOADED, R18_MODULE_REMOVED ---
 
 func TestEvaluateR17ModuleLoaded(t *testing.T) {

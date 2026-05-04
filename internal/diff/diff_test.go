@@ -802,3 +802,118 @@ func TestDiffModulesUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// --- v0.3 Phase D: cron + timers ---
+
+func TestDiffCronAdded(t *testing.T) {
+	old := baseSnapshot()
+	new := baseSnapshot()
+	new.CronJobs = []collector.CronJob{
+		{Source: "/etc/cron.d/new", User: "root", Schedule: "@hourly", Command: "/opt/run.sh"},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "cron", "added", "/etc/cron.d/new") {
+		t.Errorf("expected cron added '/etc/cron.d/new', got %+v", r.Changes)
+	}
+}
+
+func TestDiffCronRemoved(t *testing.T) {
+	old := baseSnapshot()
+	old.CronJobs = []collector.CronJob{
+		{Source: "/etc/crontab", User: "root", Schedule: "01 * * * *", Command: "run-parts /etc/cron.hourly"},
+	}
+	new := baseSnapshot()
+	r := Compare(old, new)
+	if !hasChange(r, "cron", "removed", "/etc/crontab") {
+		t.Errorf("expected cron removed '/etc/crontab'")
+	}
+}
+
+func TestDiffCronScheduleEditShowsAddPlusRemove(t *testing.T) {
+	// Editing a job's schedule changes the identity tuple, so it appears as
+	// a remove of the old and an add of the new — which is exactly what an
+	// auditor wants to see (a replacement, not a silent mutation).
+	old := baseSnapshot()
+	old.CronJobs = []collector.CronJob{
+		{Source: "/etc/crontab", User: "root", Schedule: "0 2 * * *", Command: "/opt/backup.sh"},
+	}
+	new := baseSnapshot()
+	new.CronJobs = []collector.CronJob{
+		{Source: "/etc/crontab", User: "root", Schedule: "0 4 * * *", Command: "/opt/backup.sh"},
+	}
+	r := Compare(old, new)
+	added, removed := false, false
+	for _, c := range r.Changes {
+		if c.Section != "cron" {
+			continue
+		}
+		if c.Type == "added" {
+			added = true
+		}
+		if c.Type == "removed" {
+			removed = true
+		}
+	}
+	if !added || !removed {
+		t.Errorf("expected both added and removed for schedule edit; added=%v removed=%v", added, removed)
+	}
+}
+
+func TestDiffCronUnchanged(t *testing.T) {
+	jobs := []collector.CronJob{
+		{Source: "/etc/crontab", User: "root", Schedule: "01 * * * *", Command: "run-parts /etc/cron.hourly"},
+	}
+	old := baseSnapshot()
+	old.CronJobs = jobs
+	new := baseSnapshot()
+	new.CronJobs = jobs
+	r := Compare(old, new)
+	for _, c := range r.Changes {
+		if c.Section == "cron" {
+			t.Errorf("unexpected cron change: %+v", c)
+		}
+	}
+}
+
+func TestDiffTimersAdded(t *testing.T) {
+	old := baseSnapshot()
+	new := baseSnapshot()
+	new.Timers = []collector.SystemdTimer{
+		{UnitFile: "/etc/systemd/system/foo.timer", OnCalendar: "daily", Unit: "foo.service"},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "timers", "added", "/etc/systemd/system/foo.timer") {
+		t.Errorf("expected timers added, got %+v", r.Changes)
+	}
+}
+
+func TestDiffTimersOnCalendarChange(t *testing.T) {
+	old := baseSnapshot()
+	old.Timers = []collector.SystemdTimer{
+		{UnitFile: "/etc/systemd/system/foo.timer", OnCalendar: "weekly", Unit: "foo.service"},
+	}
+	new := baseSnapshot()
+	new.Timers = []collector.SystemdTimer{
+		{UnitFile: "/etc/systemd/system/foo.timer", OnCalendar: "daily", Unit: "foo.service"},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "timers", "modified", "/etc/systemd/system/foo.timer.on_calendar") {
+		t.Errorf("expected timers modified on_calendar, got %+v", r.Changes)
+	}
+}
+
+func TestDiffTimersUnchanged(t *testing.T) {
+	timers := []collector.SystemdTimer{
+		{UnitFile: "/etc/systemd/system/foo.timer", OnCalendar: "daily", Unit: "foo.service"},
+	}
+	old := baseSnapshot()
+	old.Timers = timers
+	new := baseSnapshot()
+	new.Timers = timers
+	r := Compare(old, new)
+	for _, c := range r.Changes {
+		if c.Section == "timers" {
+			t.Errorf("unexpected timers change: %+v", c)
+		}
+	}
+}

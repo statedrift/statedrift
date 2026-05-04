@@ -68,6 +68,10 @@ func Compare(old, new *collector.Snapshot) *Result {
 	// v0.3 Phase B.
 	diffModules(old.Modules, new.Modules, r)
 
+	// v0.3 Phase D.
+	diffCron(old.CronJobs, new.CronJobs, r)
+	diffTimers(old.Timers, new.Timers, r)
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)
@@ -779,6 +783,81 @@ func diffModules(old, new []collector.Module, r *Result) {
 				"", fmt.Sprintf("size=%d deps=%s", nm.Size, strings.Join(nm.Dependencies, ",")), false})
 		}
 	}
+}
+
+// diffCron compares cron jobs as a set keyed by (Source, User, Schedule,
+// Command). The full tuple is the natural identity — multiple jobs in one
+// file legitimately share a schedule, and the same command appearing under
+// a different schedule or user is a meaningfully different job. Jobs are
+// emitted as added/removed; no per-field "modified" because changing any
+// field produces a new identity tuple, which is what an auditor wants to
+// see (the old job replaced by a new one rather than mutated in place).
+func diffCron(old, new []collector.CronJob, r *Result) {
+	cronKey := func(j collector.CronJob) string {
+		return j.Source + "\x00" + j.User + "\x00" + j.Schedule + "\x00" + j.Command
+	}
+	oldSet := make(map[string]collector.CronJob, len(old))
+	for _, j := range old {
+		oldSet[cronKey(j)] = j
+	}
+	newSet := make(map[string]collector.CronJob, len(new))
+	for _, j := range new {
+		newSet[cronKey(j)] = j
+	}
+	for k, oj := range oldSet {
+		if _, exists := newSet[k]; !exists {
+			r.Changes = append(r.Changes, Change{"cron", "removed", oj.Source,
+				fmt.Sprintf("user=%s schedule=%q cmd=%q", oj.User, oj.Schedule, oj.Command), "", false})
+		}
+	}
+	for k, nj := range newSet {
+		if _, exists := oldSet[k]; !exists {
+			r.Changes = append(r.Changes, Change{"cron", "added", nj.Source,
+				"", fmt.Sprintf("user=%s schedule=%q cmd=%q", nj.User, nj.Schedule, nj.Command), false})
+		}
+	}
+}
+
+// diffTimers compares systemd timers keyed by unit-file path. Per-field
+// modified events are emitted so future rules can target a specific kind of
+// change (e.g. OnCalendar shift) via key-pattern.
+func diffTimers(old, new []collector.SystemdTimer, r *Result) {
+	oldMap := make(map[string]collector.SystemdTimer, len(old))
+	for _, t := range old {
+		oldMap[t.UnitFile] = t
+	}
+	newMap := make(map[string]collector.SystemdTimer, len(new))
+	for _, t := range new {
+		newMap[t.UnitFile] = t
+	}
+	for path, ot := range oldMap {
+		nt, exists := newMap[path]
+		if !exists {
+			r.Changes = append(r.Changes, Change{"timers", "removed", path,
+				fmt.Sprintf("unit=%s on_calendar=%q", ot.Unit, ot.OnCalendar), "", false})
+			continue
+		}
+		emitTimerFieldChange(r, path, "description", ot.Description, nt.Description)
+		emitTimerFieldChange(r, path, "on_calendar", ot.OnCalendar, nt.OnCalendar)
+		emitTimerFieldChange(r, path, "on_boot_sec", ot.OnBootSec, nt.OnBootSec)
+		emitTimerFieldChange(r, path, "on_unit_active_sec", ot.OnUnitActiveSec, nt.OnUnitActiveSec)
+		emitTimerFieldChange(r, path, "on_unit_inactive_sec", ot.OnUnitInactiveSec, nt.OnUnitInactiveSec)
+		emitTimerFieldChange(r, path, "unit", ot.Unit, nt.Unit)
+		emitTimerFieldChange(r, path, "randomized_delay_sec", ot.RandomizedDelaySec, nt.RandomizedDelaySec)
+	}
+	for path, nt := range newMap {
+		if _, exists := oldMap[path]; !exists {
+			r.Changes = append(r.Changes, Change{"timers", "added", path,
+				"", fmt.Sprintf("unit=%s on_calendar=%q", nt.Unit, nt.OnCalendar), false})
+		}
+	}
+}
+
+func emitTimerFieldChange(r *Result, path, field, oldVal, newVal string) {
+	if oldVal == newVal {
+		return
+	}
+	r.Changes = append(r.Changes, Change{"timers", "modified", path + "." + field, oldVal, newVal, false})
 }
 
 // diffNICDrivers compares NIC driver and firmware versions.

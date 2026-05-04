@@ -178,6 +178,22 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	if captures(cfg, "cron") {
+		snap.CronJobs, err = collectCron()
+		if err != nil {
+			snap.CronJobs = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("cron: %v", err))
+		}
+	}
+
+	if captures(cfg, "timers") {
+		snap.Timers, err = collectTimers()
+		if err != nil {
+			snap.Timers = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("timers: %v", err))
+		}
+	}
+
 	// Optional collectors — only run when enabled in config.
 	if cfg.Collectors.IsEnabled("cpu") {
 		snap.CPU, err = collectCPU()
@@ -365,6 +381,22 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.Modules = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("modules: %v", err))
+		}
+	}
+
+	if due["cron"] && captures(cfg, "cron") {
+		snap.CronJobs, err = collectCron()
+		if err != nil {
+			snap.CronJobs = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("cron: %v", err))
+		}
+	}
+
+	if due["timers"] && captures(cfg, "timers") {
+		snap.Timers, err = collectTimers()
+		if err != nil {
+			snap.Timers = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("timers: %v", err))
 		}
 	}
 

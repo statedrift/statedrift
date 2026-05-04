@@ -812,6 +812,36 @@ func cmdShow(s *store.Store) {
 	// Modules — count only; full list (typically 100+) available via `show --json | jq .modules`.
 	fmt.Printf("\nKernel Modules: %d loaded\n", len(snap.Modules))
 
+	// Cron jobs — full dump. Small, security-critical, and the redacted form
+	// is short enough to render comfortably in `show`.
+	if len(snap.CronJobs) == 0 {
+		fmt.Println("\nCron Jobs: (none collected — requires root for /etc/crontab and /var/spool/cron, see collector_errors)")
+	} else {
+		fmt.Printf("\nCron Jobs: %d entries\n", len(snap.CronJobs))
+		for _, j := range snap.CronJobs {
+			user := j.User
+			if user == "" {
+				user = "-"
+			}
+			fmt.Printf("  [%s] %-8s %-20s %s\n", j.Source, user, j.Schedule, j.Command)
+		}
+	}
+
+	// Systemd timers — count + the static schedule fields. Last/next-run
+	// times are deliberately not stored, so this view is stable across snaps.
+	fmt.Printf("\nSystemd Timers: %d entries\n", len(snap.Timers))
+	for _, ti := range snap.Timers {
+		schedule := ti.OnCalendar
+		if schedule == "" {
+			schedule = ti.OnBootSec + "+" + ti.OnUnitActiveSec
+		}
+		target := ti.Unit
+		if target == "" {
+			target = "(implicit " + strings.TrimSuffix(filepath.Base(ti.UnitFile), ".timer") + ".service)"
+		}
+		fmt.Printf("  %-50s %-20s → %s\n", ti.UnitFile, schedule, target)
+	}
+
 	// Surface non-fatal collector errors so users notice missing sections.
 	if len(snap.CollectorErrors) > 0 {
 		fmt.Println("\nCollector errors:")

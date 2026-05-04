@@ -29,13 +29,15 @@ type Snapshot struct {
 	MulticastGroups []MulticastGroup `json:"multicast_groups,omitempty"`
 	Connections     []Connection     `json:"connections,omitempty"`
 
-	// v0.3 security signals (Phases A, B, E). Always-on when capture allowlist permits.
+	// v0.3 security signals (Phases A, B, D, E). Always-on when capture allowlist permits.
 	// omitempty for backward compatibility with v0.1/v0.2 snapshots that lack these fields.
-	Users   []User      `json:"users,omitempty"`
-	Groups  []Group     `json:"groups,omitempty"`
-	Sudoers []SudoEntry `json:"sudoers,omitempty"`
-	Mounts  []Mount     `json:"mounts,omitempty"`
-	Modules []Module    `json:"modules,omitempty"`
+	Users    []User         `json:"users,omitempty"`
+	Groups   []Group        `json:"groups,omitempty"`
+	Sudoers  []SudoEntry    `json:"sudoers,omitempty"`
+	Mounts   []Mount        `json:"mounts,omitempty"`
+	Modules  []Module       `json:"modules,omitempty"`
+	CronJobs []CronJob      `json:"cron_jobs,omitempty"`
+	Timers   []SystemdTimer `json:"systemd_timers,omitempty"`
 
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
@@ -237,6 +239,35 @@ type Module struct {
 	Name         string   `json:"name"`
 	Size         uint64   `json:"size"`
 	Dependencies []string `json:"dependencies"`
+}
+
+// CronJob is a single non-comment, non-blank line from a cron tab with
+// provenance. Command is run through redactSecrets at collect time, so
+// inline credentials (PASSWORD=foo, AKIA tokens, Bearer xxx) never enter
+// the snapshot. User is the runtime identity: pulled from the line itself
+// for /etc/crontab and /etc/cron.d/* (which carry a user field), and from
+// the file basename for /var/spool/cron/<user>.
+type CronJob struct {
+	Source   string `json:"source"`   // e.g. "/etc/crontab" or "/etc/cron.d/raid-check"
+	User     string `json:"user"`     // runtime user ("" for malformed lines)
+	Schedule string `json:"schedule"` // "m h dom mon dow" or "@reboot"/"@daily"/etc.
+	Command  string `json:"command"`  // redacted
+}
+
+// SystemdTimer is the static configuration of a systemd timer unit, parsed
+// directly from the unit file (not from `systemctl list-timers`, which
+// includes last/next-run timestamps that change every snapshot and would
+// dominate the diff). Fields not set in the unit are returned as empty
+// strings.
+type SystemdTimer struct {
+	UnitFile           string `json:"unit_file"`             // e.g. "/etc/systemd/system/foo.timer"
+	Description        string `json:"description,omitempty"` // [Unit] Description=
+	OnCalendar         string `json:"on_calendar,omitempty"`
+	OnBootSec          string `json:"on_boot_sec,omitempty"`
+	OnUnitActiveSec    string `json:"on_unit_active_sec,omitempty"`
+	OnUnitInactiveSec  string `json:"on_unit_inactive_sec,omitempty"`
+	Unit               string `json:"unit,omitempty"` // [Timer] Unit= (target service); empty implies foo.service for foo.timer
+	RandomizedDelaySec string `json:"randomized_delay_sec,omitempty"`
 }
 
 // Connection is an established or outbound-pending TCP connection.

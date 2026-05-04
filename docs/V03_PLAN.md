@@ -1,6 +1,6 @@
 # v0.3 Plan — Free Security Signals
 
-Status: Phases A, B, and E landed 2026-05-04. v0.2.0 shipped 2026-04-29.
+Status: Phases A, B, D, and E landed 2026-05-04. v0.2.0 shipped 2026-04-29.
 
 ## Goal
 
@@ -89,6 +89,115 @@ half-done.
    the right window. Cross-version diff/verify across the v0.1 → v0.3
    transition is not a concern (no installed users); the field is
    purely defensive for future schema changes.
+
+## Phase D — known limitations
+
+- **`/etc/cron.{daily,hourly,weekly,monthly}/` not collected.** These
+  are script directories run by anacron / `run-parts`; the schedule is
+  implicit by the directory name and the script contents are tracked
+  by the package manager via the `packages` collector. Adding a
+  rogue script to e.g. `/etc/cron.daily/` would *not* fire R21.
+  Auditors who care about this should verify the relevant directories
+  via filesystem integrity tooling outside statedrift's scope. Promote
+  to a directory-listing collector in v0.4 if real-world incidents
+  show this gap is being exploited.
+- **No anacron `/etc/anacrontab`.** Same operational class as the
+  daily-script directories above; deferred for the same reason.
+- **Cron env-var assignments (`MAILTO=`, `SHELL=`, `PATH=`) skipped.**
+  These are not jobs and `MAILTO` in particular is sometimes edited
+  for benign reasons (e.g. on-call rotation). Documented limitation;
+  if a customer asks for it later, capture them as a separate
+  `cron_env` field rather than mixing into `CronJobs`.
+- **`statedrift` does not see user-installed `crontab -u`-only
+  entries on systems with restrictive crontab permissions.** When
+  /var/spool/cron is mode 0700 and statedrift runs as a non-root
+  user, the per-user crontabs are unreadable. Surfaces in
+  `collector_errors` when this happens; production deployments should
+  run snapshots as root.
+- **Systemd timers read directly from unit files, not via
+  `systemctl`.** Means we miss dynamic / generator-produced units
+  (rare but possible — e.g. `systemd-cron-generator`). We also miss
+  user-scope (`systemctl --user`) timers. Trade-off accepted: avoiding
+  the systemctl spawn keeps the always-on collector cheap and stays
+  consistent with the project's stdlib-only convention. Document for
+  v0.5+ when fleet/agent-mode features land.
+- **Last-run / next-run timestamps deliberately dropped.**
+  `systemctl list-timers` exposes `LAST` and `NEXT` columns but those
+  change on every snapshot for any timer that recently fired, which
+  would dominate the diff with operationally-meaningless churn. The
+  static schedule (OnCalendar etc.) is what carries the drift signal;
+  if a customer needs run history, that's a separate "timer activity"
+  feature.
+- **Secret-pattern redaction is best-effort.** `redactSecrets` covers
+  the common credential-name patterns (PASSWORD, SECRET, TOKEN, etc.)
+  plus AWS / GitHub / Bearer token formats. Novel secret formats will
+  not be caught. The reusable helper lives in
+  `internal/collector/redact.go` so kernel-cmdline collection (planned
+  v0.4) can apply the same redactor; expand the pattern list there
+  rather than duplicating logic.
+
+## Phase D — manual tests
+
+Status legend: ✅ verified on 2026-05-04 · ☐ recommended, not yet run.
+
+### Smoke
+
+1. ☐ **Genesis as root surfaces both sections.** `sudo statedrift
+   init` then inspect `.cron_jobs / .systemd_timers` in the resulting
+   JSON. RHEL hosts typically show 1–3 cron jobs (the
+   `/etc/cron.d/0hourly` driver) and 5–10 systemd timers (dnf, fstrim,
+   logrotate, etc.). schema_version stays "0.3".
+2. ☐ **Hash chain verifies after multiple snapshots.** Two
+   back-to-back snaps as root, then `statedrift verify`. Catches
+   non-determinism in cron sort order or timer-file enumeration.
+
+### Rule firing on realistic scenarios
+
+3. ☐ **R21 fires on new cron job.** `echo "@hourly root /opt/test.sh"
+   | sudo tee /etc/cron.d/test` → `sudo statedrift snap` → `analyze`.
+   Expect `R21_CRON_MODIFIED` (high). Clean up with
+   `sudo rm /etc/cron.d/test`.
+4. ☐ **R22 fires on timer change.** `sudo systemctl edit
+   --full dnf-makecache.timer` (change OnUnitInactiveSec=1h → 30min),
+   then snap + analyze. Expect `R22_TIMER_MODIFIED` (high). The
+   audit-critical scenario: a timer's frequency or target unit
+   changing under the operator's nose.
+5. ☐ **Per-user crontab change fires R21.** `sudo crontab -u alice -e`
+   to add a job, snap, analyze. Confirm the job appears with
+   `Source: /var/spool/cron/alice` and `User: alice` in JSON, and
+   R21 fires.
+
+### Edge cases
+
+6. ☐ **Inline secret in cron command is redacted.** `echo "0 2 * * *
+   root MYSQL_PASSWORD=hunter2 /opt/backup.sh" | sudo tee
+   /etc/cron.d/redaction-test`, snap, then `grep hunter2` the JSON
+   snapshot file — must return nothing. The audit-trail leak case;
+   if this fails, the redactor is broken and we have a chain
+   contamination problem.
+7. ☐ **Editor backup files in cron.d ignored.** Save a vim `.swp`
+   or `~`-suffixed file in `/etc/cron.d/`; snap should not list it
+   in JSON. Already covered by unit test
+   `TestReadCronFromAllSources`.
+8. ☐ **Same-named timer in /etc and /usr/lib — etc wins.** Already
+   covered by `TestReadTimersFromOverrideOrder`. If a customer ever
+   reports a "wrong timer schedule in snapshot," verify they don't
+   have a stale unit in /etc shadowing the package version.
+
+### Verified during Phase D development
+
+- ✅ Cron env-var assignments (SHELL=, MAILTO=, PATH=) skipped at
+  parse time (covered by `TestIsCronEnvAssignment` and
+  `TestReadCrontabFileSkipsCommentsAndEnv`).
+- ✅ Cron command bodies pass through `redactSecrets` for inline
+  PASSWORD=, AWS keys, GitHub tokens, Bearer tokens (covered by the
+  TestRedactSecrets* family).
+- ✅ Per-user crontabs read user from filename, not from line
+  (covered by `TestParseCronLineStandardNoUserField` and
+  `TestReadCronFromAllSources`).
+- ✅ Timer unit files with no `[Timer]` section return nil (defensive
+  against stray `*.timer` matches; covered by
+  `TestReadTimerUnitFileNoTimerSection`).
 
 ## Phase B — known limitations
 

@@ -249,6 +249,23 @@ func DefaultRules() []Rule {
 			Section:     "sudoers",
 			ChangeType:  "any",
 		},
+		// v0.3 Phase D — cron + systemd timers (free tier)
+		{
+			ID:          "R21_CRON_MODIFIED",
+			Name:        "Cron job changed",
+			Description: "A cron entry was added, removed, or replaced in /etc/crontab, /etc/cron.d/, or /var/spool/cron/. Cron jobs run arbitrary commands, often as root; any change is high-signal.",
+			Severity:    SeverityHigh,
+			Section:     "cron",
+			ChangeType:  "any",
+		},
+		{
+			ID:          "R22_TIMER_MODIFIED",
+			Name:        "Systemd timer changed",
+			Description: "A .timer unit file was added, removed, or modified in /etc/systemd/system or /usr/lib/systemd/system. Timers schedule arbitrary services; any change is high-signal.",
+			Severity:    SeverityHigh,
+			Section:     "timers",
+			ChangeType:  "any",
+		},
 		// v0.3 Phase B — kernel modules (free tier)
 		{
 			ID:          "R17_MODULE_LOADED",
