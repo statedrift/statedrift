@@ -276,6 +276,32 @@ func TestEvaluatePhaseERulesAreFreeTier(t *testing.T) {
 	}
 }
 
+// --- v0.3 Phase B: R17_MODULE_LOADED, R18_MODULE_REMOVED ---
+
+func TestEvaluateR17ModuleLoaded(t *testing.T) {
+	changes := []Change{{Section: "modules", Type: "added", Key: "xfrm_user"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R17_MODULE_LOADED") {
+		t.Error("expected R17_MODULE_LOADED to fire on modules added")
+	}
+}
+
+func TestEvaluateR18ModuleRemoved(t *testing.T) {
+	changes := []Change{{Section: "modules", Type: "removed", Key: "xfrm_user"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R18_MODULE_REMOVED") {
+		t.Error("expected R18_MODULE_REMOVED to fire on modules removed")
+	}
+}
+
+func TestEvaluatePhaseBRulesAreFreeTier(t *testing.T) {
+	for _, id := range []string{"R17_MODULE_LOADED", "R18_MODULE_REMOVED"} {
+		for _, r := range DefaultRules() {
+			if r.ID == id && r.Pro {
+				t.Errorf("%s should be free-tier (Pro=false)", id)
+			}
+		}
+	}
+}
+
 func containsRule(findings []Finding, id string) bool {
 	for _, f := range findings {
 		if f.Rule.ID == id {

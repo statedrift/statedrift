@@ -249,6 +249,23 @@ func DefaultRules() []Rule {
 			Section:     "sudoers",
 			ChangeType:  "any",
 		},
+		// v0.3 Phase B — kernel modules (free tier)
+		{
+			ID:          "R17_MODULE_LOADED",
+			Name:        "Kernel module loaded",
+			Description: "A new entry appeared in /proc/modules. New kernel modules can install rootkits, hook syscalls, or modify kernel behavior; loads outside a change window are high-signal.",
+			Severity:    SeverityHigh,
+			Section:     "modules",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R18_MODULE_REMOVED",
+			Name:        "Kernel module unloaded",
+			Description: "A module disappeared from /proc/modules. Benign on shutdown or driver swap; suspicious during steady-state operation.",
+			Severity:    SeverityMedium,
+			Section:     "modules",
+			ChangeType:  "removed",
+		},
 		// v0.3 Phase E — mounts (free tier)
 		{
 			ID:          "R23_MOUNT_ADDED",

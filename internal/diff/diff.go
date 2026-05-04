@@ -65,6 +65,9 @@ func Compare(old, new *collector.Snapshot) *Result {
 	// v0.3 Phase E.
 	diffMounts(old.Mounts, new.Mounts, r)
 
+	// v0.3 Phase B.
+	diffModules(old.Modules, new.Modules, r)
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)
@@ -732,6 +735,48 @@ func diffMounts(old, new []collector.Mount, r *Result) {
 		if _, exists := oldMap[key]; !exists {
 			r.Changes = append(r.Changes, Change{"mounts", "added", nm.MountPoint,
 				"", fmt.Sprintf("source=%s fs=%s opts=%s", nm.Source, nm.FSType, nm.MountOptions), false})
+		}
+	}
+}
+
+// diffModules compares loaded kernel modules keyed by name.
+// A name reappearing with a different size indicates the underlying .ko file
+// was replaced (potential rootkit signal). Dependency-list changes emit a
+// modified change so a future rule can target supply-chain shifts.
+func diffModules(old, new []collector.Module, r *Result) {
+	oldMap := make(map[string]collector.Module, len(old))
+	for _, m := range old {
+		oldMap[m.Name] = m
+	}
+	newMap := make(map[string]collector.Module, len(new))
+	for _, m := range new {
+		newMap[m.Name] = m
+	}
+
+	for name, om := range oldMap {
+		nm, exists := newMap[name]
+		if !exists {
+			r.Changes = append(r.Changes, Change{"modules", "removed", name,
+				fmt.Sprintf("size=%d deps=%s", om.Size, strings.Join(om.Dependencies, ",")), "", false})
+			continue
+		}
+		if om.Size != nm.Size {
+			r.Changes = append(r.Changes, Change{"modules", "modified", name + ".size",
+				fmt.Sprintf("%d", om.Size), fmt.Sprintf("%d", nm.Size), false})
+		}
+		// Dependencies are pre-sorted at collect time, so a string comparison
+		// of the joined form is sufficient and avoids a slice-equality helper.
+		oldDeps := strings.Join(om.Dependencies, ",")
+		newDeps := strings.Join(nm.Dependencies, ",")
+		if oldDeps != newDeps {
+			r.Changes = append(r.Changes, Change{"modules", "modified", name + ".dependencies",
+				oldDeps, newDeps, false})
+		}
+	}
+	for name, nm := range newMap {
+		if _, exists := oldMap[name]; !exists {
+			r.Changes = append(r.Changes, Change{"modules", "added", name,
+				"", fmt.Sprintf("size=%d deps=%s", nm.Size, strings.Join(nm.Dependencies, ",")), false})
 		}
 	}
 }

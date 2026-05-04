@@ -809,6 +809,9 @@ func cmdShow(s *store.Store) {
 		fmt.Printf("  %-32s %-10s %-32s %s\n", m.MountPoint, m.FSType, m.Source, m.MountOptions)
 	}
 
+	// Modules — count only; full list (typically 100+) available via `show --json | jq .modules`.
+	fmt.Printf("\nKernel Modules: %d loaded\n", len(snap.Modules))
+
 	// Surface non-fatal collector errors so users notice missing sections.
 	if len(snap.CollectorErrors) > 0 {
 		fmt.Println("\nCollector errors:")

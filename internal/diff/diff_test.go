@@ -728,3 +728,77 @@ func TestDiffMountsBindMountsKeyedByPointAndSource(t *testing.T) {
 		t.Errorf("expected removed change for /dev/sdb1 bind mount, got %+v", r.Changes)
 	}
 }
+
+// --- v0.3 Phase B: kernel modules ---
+
+func TestDiffModulesAdded(t *testing.T) {
+	old := baseSnapshot()
+	new := baseSnapshot()
+	new.Modules = []collector.Module{
+		{Name: "xfrm_user", Size: 49152},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "modules", "added", "xfrm_user") {
+		t.Errorf("expected modules added 'xfrm_user', got %+v", r.Changes)
+	}
+}
+
+func TestDiffModulesRemoved(t *testing.T) {
+	old := baseSnapshot()
+	old.Modules = []collector.Module{
+		{Name: "xfrm_user", Size: 49152},
+	}
+	new := baseSnapshot()
+	r := Compare(old, new)
+	if !hasChange(r, "modules", "removed", "xfrm_user") {
+		t.Errorf("expected modules removed 'xfrm_user'")
+	}
+}
+
+func TestDiffModulesSizeChange(t *testing.T) {
+	// Same module name with different size = .ko file replaced. The rootkit signal.
+	old := baseSnapshot()
+	old.Modules = []collector.Module{
+		{Name: "nf_conntrack", Size: 196608},
+	}
+	new := baseSnapshot()
+	new.Modules = []collector.Module{
+		{Name: "nf_conntrack", Size: 200704},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "modules", "modified", "nf_conntrack.size") {
+		t.Errorf("expected modules modified 'nf_conntrack.size', got %+v", r.Changes)
+	}
+}
+
+func TestDiffModulesDependenciesChange(t *testing.T) {
+	old := baseSnapshot()
+	old.Modules = []collector.Module{
+		{Name: "llc", Size: 16384, Dependencies: []string{"bridge"}},
+	}
+	new := baseSnapshot()
+	new.Modules = []collector.Module{
+		{Name: "llc", Size: 16384, Dependencies: []string{"bridge", "stp"}},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "modules", "modified", "llc.dependencies") {
+		t.Errorf("expected modules modified 'llc.dependencies'")
+	}
+}
+
+func TestDiffModulesUnchanged(t *testing.T) {
+	mods := []collector.Module{
+		{Name: "bridge", Size: 294912},
+		{Name: "llc", Size: 16384, Dependencies: []string{"bridge", "stp"}},
+	}
+	old := baseSnapshot()
+	old.Modules = mods
+	new := baseSnapshot()
+	new.Modules = mods
+	r := Compare(old, new)
+	for _, c := range r.Changes {
+		if c.Section == "modules" {
+			t.Errorf("unexpected modules change on identical input: %+v", c)
+		}
+	}
+}

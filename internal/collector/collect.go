@@ -170,6 +170,14 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	if captures(cfg, "modules") {
+		snap.Modules, err = collectModules()
+		if err != nil {
+			snap.Modules = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("modules: %v", err))
+		}
+	}
+
 	// Optional collectors — only run when enabled in config.
 	if cfg.Collectors.IsEnabled("cpu") {
 		snap.CPU, err = collectCPU()
@@ -349,6 +357,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.Mounts = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("mounts: %v", err))
+		}
+	}
+
+	if due["modules"] && captures(cfg, "modules") {
+		snap.Modules, err = collectModules()
+		if err != nil {
+			snap.Modules = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("modules: %v", err))
 		}
 	}
 

@@ -1,6 +1,6 @@
 # v0.3 Plan — Free Security Signals
 
-Status: Phases A and E landed 2026-05-04. v0.2.0 shipped 2026-04-29.
+Status: Phases A, B, and E landed 2026-05-04. v0.2.0 shipped 2026-04-29.
 
 ## Goal
 
@@ -89,6 +89,79 @@ half-done.
    the right window. Cross-version diff/verify across the v0.1 → v0.3
    transition is not a concern (no installed users); the field is
    purely defensive for future schema changes.
+
+## Phase B — known limitations
+
+- **No module signature collection.** `modinfo -F signature` would tell us
+  whether a `.ko` file is signed and by which key, but spawning one
+  modinfo process per loaded module (typically 100+) on every snapshot
+  is too expensive for an always-on collector. R17/R18 cover the
+  high-signal events (load/unload). Revisit in v0.4 with a sysfs- or
+  direct-file-read approach if signature drift becomes a real-world ask.
+- **No taint detection.** `/proc/sys/kernel/tainted` and per-module
+  `/sys/module/<name>/taint` would surface out-of-tree modules and
+  proprietary modules. Park as a v0.4 candidate; not load-bearing for
+  the v0.3 free-tier signal set.
+- **RefCount, State, and load address dropped.** RefCount changes
+  constantly (kernel activity) and would dominate diffs. State is
+  almost always "Live"; transitional Loading/Unloading states are too
+  short-lived to snapshot reliably. The load address is zeros for
+  non-root readers under kASLR. Excluding these keeps the chain quiet
+  and the diff focused on real drift.
+- **Module-replaced-with-different-version detection is partial.** R17
+  fires when a name appears that wasn't there before, and the diff
+  emits a `modules modified <name>.size` change when an existing
+  module's size shifts (potential .ko replacement). There is no
+  separate rule for the size-shift case — fold into a follow-up rule if
+  in-place replacement proves to be a common attack pattern in the
+  wild.
+
+## Phase B — manual tests
+
+Status legend: ✅ verified on 2026-05-04 · ☐ recommended, not yet run.
+
+### Smoke
+
+1. ☐ **Genesis includes modules.** `statedrift init` (no sudo needed;
+   /proc/modules is world-readable). Inspect `.modules` count and a
+   few entries in JSON. Expect 50–200+ entries on a typical Linux
+   host; deps sorted alphabetically per entry.
+2. ☐ **Hash chain verifies after multiple snapshots.** Two back-to-back
+   snapshots followed by `statedrift verify` must report INTEGRITY
+   VERIFIED — catches non-determinism in the dependency-sort path.
+
+### Rule firing on realistic scenarios
+
+3. ☐ **R17 fires on module load.** `sudo modprobe dummy` →
+   `sudo statedrift snap` → `analyze`. Expect `R17_MODULE_LOADED`
+   (high). Clean up with `sudo modprobe -r dummy`.
+4. ☐ **R18 fires on module unload.** Snapshot a host with `dummy`
+   loaded, unload, snapshot again, analyze. Expect
+   `R18_MODULE_REMOVED` (medium).
+5. ☐ **Size-change diff visible (no rule).** Replace a module's `.ko`
+   in `/lib/modules/$(uname -r)/...` with a recompiled version of
+   different size, `rmmod && modprobe` to take it live, snap, diff.
+   Expect `modules modified <name>.size`. R17/R18 will not fire
+   (the name was continuous); confirm the diff still reads cleanly.
+
+### Edge cases
+
+6. ☐ **No-deps module ('-').** Load any module with no dependencies
+   (e.g. `dummy`). The JSON entry must have `"dependencies": null` or
+   omitted, never `["-"]`.
+7. ☐ **Multi-dep module dependency change shows in diff.** Force a
+   dependency change (e.g. by loading `nft_fib_ipv6` after the rest
+   of the nft_fib chain). Expect
+   `modules modified <name>.dependencies`.
+
+### Verified during Phase B development
+
+- ✅ Trailing-comma deps (`nf_nat_tftp,`) parsed correctly
+  (covered by `TestParseModulesLineSingleDep`).
+- ✅ Out-of-load-order deps sorted alphabetically in output (covered
+  by `TestParseModulesLineMultipleDepsSorted`).
+- ✅ Malformed lines and unparseable sizes return nil rather than
+  crash (covered by `TestParseModulesLineMalformed`).
 
 ## Phase E — known limitations
 

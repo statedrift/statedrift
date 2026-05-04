@@ -29,12 +29,13 @@ type Snapshot struct {
 	MulticastGroups []MulticastGroup `json:"multicast_groups,omitempty"`
 	Connections     []Connection     `json:"connections,omitempty"`
 
-	// v0.3 security signals (Phases A, E). Always-on when capture allowlist permits.
+	// v0.3 security signals (Phases A, B, E). Always-on when capture allowlist permits.
 	// omitempty for backward compatibility with v0.1/v0.2 snapshots that lack these fields.
 	Users   []User      `json:"users,omitempty"`
 	Groups  []Group     `json:"groups,omitempty"`
 	Sudoers []SudoEntry `json:"sudoers,omitempty"`
 	Mounts  []Mount     `json:"mounts,omitempty"`
+	Modules []Module    `json:"modules,omitempty"`
 
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
@@ -219,6 +220,23 @@ type Mount struct {
 	FSType       string `json:"fs_type"`       // ext4, tmpfs, cifs, overlay
 	MountOptions string `json:"mount_options"` // sorted, comma-joined; credentials stripped
 	SuperOptions string `json:"super_options"` // sorted, comma-joined; credentials stripped
+}
+
+// Module is a single loaded kernel module from /proc/modules.
+// We deliberately drop RefCount (varies constantly with kernel activity),
+// State (almost always "Live"), and the load address (zeros to non-root
+// readers under kASLR). Size is retained because an unchanged Name with
+// changed Size indicates the underlying .ko file was replaced — a useful
+// rootkit signal. Dependencies is sorted for stable hashing.
+//
+// Module signatures (modinfo -F signature) are not collected in v0.3:
+// always-on snapshotting would spawn one modinfo process per loaded
+// module (typically 100+). See docs/V03_PLAN.md "Phase B — known
+// limitations" for v0.4 follow-up.
+type Module struct {
+	Name         string   `json:"name"`
+	Size         uint64   `json:"size"`
+	Dependencies []string `json:"dependencies"`
 }
 
 // Connection is an established or outbound-pending TCP connection.
