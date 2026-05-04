@@ -2,7 +2,7 @@
         test-docker test-docker-v02 test-docker-all test-integration
 
 BINARY  := statedrift
-VERSION := 0.2.0
+VERSION := 0.3.0
 COMMIT    := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILDDATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 # LICENSE_SECRET must be set in the environment for production builds.

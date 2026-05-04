@@ -7,7 +7,7 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
-## [0.3.0] — Unreleased
+## [0.3.0] — 2026-05-04
 
 Free-tier value bump: five new always-on security-signal collectors, 12 new
 free anomaly rules (R14–R25), and a reusable secret-pattern redactor.
