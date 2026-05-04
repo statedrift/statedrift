@@ -917,3 +917,94 @@ func TestDiffTimersUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// --- v0.3 Phase C: SSH authorized_keys ---
+
+func TestDiffSSHKeysAdded(t *testing.T) {
+	old := baseSnapshot()
+	new := baseSnapshot()
+	new.SSHKeys = []collector.SSHKey{
+		{User: "root", Type: "ssh-ed25519", Fingerprint: "SHA256:abc", Comment: "alice@laptop", Source: "/root/.ssh/authorized_keys"},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "ssh_keys", "added", "root SHA256:abc") {
+		t.Errorf("expected ssh_keys added 'root SHA256:abc', got %+v", r.Changes)
+	}
+}
+
+func TestDiffSSHKeysRemoved(t *testing.T) {
+	old := baseSnapshot()
+	old.SSHKeys = []collector.SSHKey{
+		{User: "alice", Type: "ssh-ed25519", Fingerprint: "SHA256:gone"},
+	}
+	new := baseSnapshot()
+	r := Compare(old, new)
+	if !hasChange(r, "ssh_keys", "removed", "alice SHA256:gone") {
+		t.Errorf("expected ssh_keys removed, got %+v", r.Changes)
+	}
+}
+
+func TestDiffSSHKeysFingerprintChangeIsRekey(t *testing.T) {
+	// A user replacing their key is a re-key event: fingerprint changes →
+	// identity changes → appears as remove + add. This is intentional —
+	// auditors want to see both halves of a key rotation.
+	old := baseSnapshot()
+	old.SSHKeys = []collector.SSHKey{
+		{User: "alice", Type: "ssh-ed25519", Fingerprint: "SHA256:old"},
+	}
+	new := baseSnapshot()
+	new.SSHKeys = []collector.SSHKey{
+		{User: "alice", Type: "ssh-ed25519", Fingerprint: "SHA256:new"},
+	}
+	r := Compare(old, new)
+	added, removed := false, false
+	for _, c := range r.Changes {
+		if c.Section != "ssh_keys" {
+			continue
+		}
+		if c.Type == "added" {
+			added = true
+		}
+		if c.Type == "removed" {
+			removed = true
+		}
+	}
+	if !added || !removed {
+		t.Errorf("expected re-key to surface as add+remove; added=%v removed=%v", added, removed)
+	}
+}
+
+func TestDiffSSHKeysOptionsChangeIsModified(t *testing.T) {
+	// Adding a forced-command restriction to an existing key without changing
+	// the key material is a meaningful security event — surface as modified
+	// rather than triggering a re-key (the identity tuple is unchanged).
+	old := baseSnapshot()
+	old.SSHKeys = []collector.SSHKey{
+		{User: "deploy", Type: "ssh-ed25519", Fingerprint: "SHA256:same"},
+	}
+	new := baseSnapshot()
+	new.SSHKeys = []collector.SSHKey{
+		{User: "deploy", Type: "ssh-ed25519", Fingerprint: "SHA256:same",
+			Options: `from="10.0.0.0/8",no-pty`},
+	}
+	r := Compare(old, new)
+	if !hasChange(r, "ssh_keys", "modified", "deploy SHA256:same.options") {
+		t.Errorf("expected ssh_keys modified options, got %+v", r.Changes)
+	}
+}
+
+func TestDiffSSHKeysUnchanged(t *testing.T) {
+	keys := []collector.SSHKey{
+		{User: "alice", Type: "ssh-ed25519", Fingerprint: "SHA256:xyz", Source: "/home/alice/.ssh/authorized_keys"},
+	}
+	old := baseSnapshot()
+	old.SSHKeys = keys
+	new := baseSnapshot()
+	new.SSHKeys = keys
+	r := Compare(old, new)
+	for _, c := range r.Changes {
+		if c.Section == "ssh_keys" {
+			t.Errorf("unexpected ssh_keys change on identical input: %+v", c)
+		}
+	}
+}

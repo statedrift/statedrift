@@ -72,6 +72,9 @@ func Compare(old, new *collector.Snapshot) *Result {
 	diffCron(old.CronJobs, new.CronJobs, r)
 	diffTimers(old.Timers, new.Timers, r)
 
+	// v0.3 Phase C.
+	diffSSHKeys(old.SSHKeys, new.SSHKeys, r)
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)
@@ -858,6 +861,54 @@ func emitTimerFieldChange(r *Result, path, field, oldVal, newVal string) {
 		return
 	}
 	r.Changes = append(r.Changes, Change{"timers", "modified", path + "." + field, oldVal, newVal, false})
+}
+
+// diffSSHKeys compares authorized_keys entries keyed by (User, Type,
+// Fingerprint). The fingerprint is the cryptographic identity of the key
+// material, so a fingerprint change *is* a key change — these appear as
+// remove + add (which is what an auditor wants: the old key is gone, a
+// new key is in). Comment and options changes on the same fingerprint
+// emit modified events for diff visibility, but do not cross the identity
+// boundary.
+func diffSSHKeys(old, new []collector.SSHKey, r *Result) {
+	keyID := func(k collector.SSHKey) string {
+		return k.User + "\x00" + k.Type + "\x00" + k.Fingerprint
+	}
+	oldMap := make(map[string]collector.SSHKey, len(old))
+	for _, k := range old {
+		oldMap[keyID(k)] = k
+	}
+	newMap := make(map[string]collector.SSHKey, len(new))
+	for _, k := range new {
+		newMap[keyID(k)] = k
+	}
+	for id, ok := range oldMap {
+		nk, exists := newMap[id]
+		if !exists {
+			r.Changes = append(r.Changes, Change{"ssh_keys", "removed", ok.User + " " + ok.Fingerprint,
+				fmt.Sprintf("type=%s comment=%q source=%s", ok.Type, ok.Comment, ok.Source), "", false})
+			continue
+		}
+		// Same identity tuple — surface secondary-field changes as modified.
+		if ok.Comment != nk.Comment {
+			r.Changes = append(r.Changes, Change{"ssh_keys", "modified",
+				ok.User + " " + ok.Fingerprint + ".comment", ok.Comment, nk.Comment, false})
+		}
+		if ok.Options != nk.Options {
+			r.Changes = append(r.Changes, Change{"ssh_keys", "modified",
+				ok.User + " " + ok.Fingerprint + ".options", ok.Options, nk.Options, false})
+		}
+		if ok.Source != nk.Source {
+			r.Changes = append(r.Changes, Change{"ssh_keys", "modified",
+				ok.User + " " + ok.Fingerprint + ".source", ok.Source, nk.Source, false})
+		}
+	}
+	for id, nk := range newMap {
+		if _, exists := oldMap[id]; !exists {
+			r.Changes = append(r.Changes, Change{"ssh_keys", "added", nk.User + " " + nk.Fingerprint,
+				"", fmt.Sprintf("type=%s comment=%q source=%s", nk.Type, nk.Comment, nk.Source), false})
+		}
+	}
 }
 
 // diffNICDrivers compares NIC driver and firmware versions.

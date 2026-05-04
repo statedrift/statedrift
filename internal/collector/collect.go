@@ -194,6 +194,14 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	if captures(cfg, "ssh_keys") {
+		snap.SSHKeys, err = collectSSHKeys()
+		if err != nil {
+			snap.SSHKeys = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("ssh_keys: %v", err))
+		}
+	}
+
 	// Optional collectors — only run when enabled in config.
 	if cfg.Collectors.IsEnabled("cpu") {
 		snap.CPU, err = collectCPU()
@@ -397,6 +405,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.Timers = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("timers: %v", err))
+		}
+	}
+
+	if due["ssh_keys"] && captures(cfg, "ssh_keys") {
+		snap.SSHKeys, err = collectSSHKeys()
+		if err != nil {
+			snap.SSHKeys = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("ssh_keys: %v", err))
 		}
 	}
 

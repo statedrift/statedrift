@@ -29,7 +29,7 @@ type Snapshot struct {
 	MulticastGroups []MulticastGroup `json:"multicast_groups,omitempty"`
 	Connections     []Connection     `json:"connections,omitempty"`
 
-	// v0.3 security signals (Phases A, B, D, E). Always-on when capture allowlist permits.
+	// v0.3 security signals (Phases A, B, C, D, E). Always-on when capture allowlist permits.
 	// omitempty for backward compatibility with v0.1/v0.2 snapshots that lack these fields.
 	Users    []User         `json:"users,omitempty"`
 	Groups   []Group        `json:"groups,omitempty"`
@@ -38,6 +38,7 @@ type Snapshot struct {
 	Modules  []Module       `json:"modules,omitempty"`
 	CronJobs []CronJob      `json:"cron_jobs,omitempty"`
 	Timers   []SystemdTimer `json:"systemd_timers,omitempty"`
+	SSHKeys  []SSHKey       `json:"ssh_keys,omitempty"`
 
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
@@ -268,6 +269,33 @@ type SystemdTimer struct {
 	OnUnitInactiveSec  string `json:"on_unit_inactive_sec,omitempty"`
 	Unit               string `json:"unit,omitempty"` // [Timer] Unit= (target service); empty implies foo.service for foo.timer
 	RandomizedDelaySec string `json:"randomized_delay_sec,omitempty"`
+}
+
+// SSHKey is a single line from a user's authorized_keys file, captured as
+// metadata only. The base64-encoded public-key body is NEVER stored in the
+// chain — we record only what's needed to identify the key (fingerprint),
+// classify it (type), label it (comment), and assess restrictions
+// (options). Per docs/V03_PLAN.md "PII / secrets redaction policy" Cat A:
+// key material is dropped at collection time, not at export time.
+//
+// Fingerprint is the standard SHA256-of-public-key in OpenSSH form
+// ("SHA256:" + base64-no-padding), exactly matching `ssh-keygen -lf`.
+//
+// Options carries the comma-separated forced-command / source-restriction /
+// no-pty / etc. prefix. Pass through redactSecrets at collect time so
+// inline credentials in `command="bash -c '... TOKEN=xxx ...'"` never enter
+// the chain.
+//
+// Identity for diff purposes is (User, Type, Fingerprint). Re-keying the
+// same human user produces a remove + add (a fingerprint change is a
+// genuine identity change, which is what an auditor wants to see).
+type SSHKey struct {
+	User        string `json:"user"`              // login name (from /etc/passwd, or "root")
+	Source      string `json:"source"`            // file path (e.g., "/root/.ssh/authorized_keys")
+	Type        string `json:"type"`              // "ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256", etc.
+	Fingerprint string `json:"fingerprint"`       // "SHA256:base64nopad"
+	Comment     string `json:"comment,omitempty"` // free-form label (often user@host)
+	Options     string `json:"options,omitempty"` // comma-joined options prefix; redacted
 }
 
 // Connection is an established or outbound-pending TCP connection.

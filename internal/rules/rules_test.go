@@ -276,6 +276,46 @@ func TestEvaluatePhaseERulesAreFreeTier(t *testing.T) {
 	}
 }
 
+// --- v0.3 Phase C: R19_SSH_KEY_ADDED, R20_SSH_KEY_REMOVED ---
+
+func TestEvaluateR19SSHKeyAdded(t *testing.T) {
+	changes := []Change{{Section: "ssh_keys", Type: "added", Key: "root SHA256:abc"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R19_SSH_KEY_ADDED") {
+		t.Error("expected R19_SSH_KEY_ADDED to fire on ssh_keys added")
+	}
+}
+
+func TestEvaluateR19IsCritical(t *testing.T) {
+	// A new SSH key on root grants remote login — must be critical-severity,
+	// not high. R19 is the highest-impact "added" rule in the free tier.
+	for _, r := range DefaultRules() {
+		if r.ID == "R19_SSH_KEY_ADDED" {
+			if r.Severity != SeverityCritical {
+				t.Errorf("R19_SSH_KEY_ADDED severity = %q, want %q", r.Severity, SeverityCritical)
+			}
+			return
+		}
+	}
+	t.Error("R19_SSH_KEY_ADDED not found in DefaultRules")
+}
+
+func TestEvaluateR20SSHKeyRemoved(t *testing.T) {
+	changes := []Change{{Section: "ssh_keys", Type: "removed", Key: "alice SHA256:gone"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R20_SSH_KEY_REMOVED") {
+		t.Error("expected R20_SSH_KEY_REMOVED to fire on ssh_keys removed")
+	}
+}
+
+func TestEvaluatePhaseCRulesAreFreeTier(t *testing.T) {
+	for _, id := range []string{"R19_SSH_KEY_ADDED", "R20_SSH_KEY_REMOVED"} {
+		for _, r := range DefaultRules() {
+			if r.ID == id && r.Pro {
+				t.Errorf("%s should be free-tier (Pro=false)", id)
+			}
+		}
+	}
+}
+
 // --- v0.3 Phase D: R21_CRON_MODIFIED, R22_TIMER_MODIFIED ---
 
 func TestEvaluateR21CronAddedFires(t *testing.T) {

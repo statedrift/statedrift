@@ -249,6 +249,23 @@ func DefaultRules() []Rule {
 			Section:     "sudoers",
 			ChangeType:  "any",
 		},
+		// v0.3 Phase C — SSH authorized_keys (free tier)
+		{
+			ID:          "R19_SSH_KEY_ADDED",
+			Name:        "New SSH authorized key",
+			Description: "A new entry appeared in some user's ~/.ssh/authorized_keys. SSH keys grant remote login as that user — a new key out of a change window may indicate post-exploitation persistence.",
+			Severity:    SeverityCritical,
+			Section:     "ssh_keys",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R20_SSH_KEY_REMOVED",
+			Name:        "SSH authorized key removed",
+			Description: "An entry was removed from a user's ~/.ssh/authorized_keys. Benign during offboarding or key rotation; suspicious if unexplained (could be an attacker covering tracks).",
+			Severity:    SeverityMedium,
+			Section:     "ssh_keys",
+			ChangeType:  "removed",
+		},
 		// v0.3 Phase D — cron + systemd timers (free tier)
 		{
 			ID:          "R21_CRON_MODIFIED",

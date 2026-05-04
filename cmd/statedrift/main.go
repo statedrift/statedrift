@@ -842,6 +842,23 @@ func cmdShow(s *store.Store) {
 		fmt.Printf("  %-50s %-20s → %s\n", ti.UnitFile, schedule, target)
 	}
 
+	// SSH authorized keys — count + (user, type, fingerprint, comment).
+	// Per the redaction policy, we never have the body, so there's nothing
+	// sensitive to elide here; full enumeration is fine.
+	fmt.Printf("\nSSH Authorized Keys: %d keys\n", len(snap.SSHKeys))
+	for _, k := range snap.SSHKeys {
+		fp := k.Fingerprint
+		// Trim "SHA256:" + first 24 chars is enough for human comparison.
+		if len(fp) > 31 {
+			fp = fp[:31] + "…"
+		}
+		comment := k.Comment
+		if comment == "" {
+			comment = "-"
+		}
+		fmt.Printf("  %-12s %-22s %-32s %s\n", k.User, k.Type, fp, comment)
+	}
+
 	// Surface non-fatal collector errors so users notice missing sections.
 	if len(snap.CollectorErrors) > 0 {
 		fmt.Println("\nCollector errors:")

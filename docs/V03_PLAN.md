@@ -1,6 +1,6 @@
 # v0.3 Plan — Free Security Signals
 
-Status: Phases A, B, D, and E landed 2026-05-04. v0.2.0 shipped 2026-04-29.
+Status: All five phases (A, B, C, D, E) landed 2026-05-04. v0.2.0 shipped 2026-04-29. Ready to cut v0.3.0 once a CHANGELOG stub lands and the manual test passes have been run on a release-candidate build.
 
 ## Goal
 
@@ -89,6 +89,97 @@ half-done.
    the right window. Cross-version diff/verify across the v0.1 → v0.3
    transition is not a concern (no installed users); the field is
    purely defensive for future schema changes.
+
+## Phase C — known limitations
+
+- **AuthorizedKeysFile sshd_config override not honored.** OpenSSH
+  lets admins redirect authorized keys to e.g.
+  `/etc/ssh/authorized_keys.d/%u` via the `AuthorizedKeysFile`
+  directive. v0.3 only checks the standard `<home>/.ssh/authorized_keys`
+  and `authorized_keys2` paths. Hosts with custom locations will
+  appear key-less in the snapshot. Promote to an sshd_config-aware
+  resolver in v0.4 if real deployments rely on the override.
+- **AuthorizedKeysCommand not invoked.** `AuthorizedKeysCommand` runs
+  an arbitrary helper to emit keys (commonly used for LDAP / IDP
+  integration). statedrift will not see those keys. Documented gap;
+  fleet-scale orgs that lean on this should treat it as an external
+  observability gap until v0.5+ when fleet-baseline features land.
+- **Host CA trust (TrustedUserCAKeys, RevokedKeys) not collected.**
+  Certificate-authority configuration is a separate signal class —
+  parse them in a follow-up Phase F if customers ask. R19/R20 do not
+  cover CA-signed user certificates as a category.
+- **Hashed `known_hosts`-style entries in authorized_keys not
+  decoded.** The HashKnownHosts directive applies to known_hosts, not
+  authorized_keys, so this is mostly a non-issue, but worth noting
+  the parser does not unhash anything.
+- **Body-leakage is the load-bearing invariant.** The collector
+  computes the SHA256 fingerprint at parse time and discards the
+  base64 body. `TestParseAuthorizedKeysLineNeverContainsBody` checks
+  this directly. If that test ever needs to be relaxed, the redaction
+  policy says: drop the field rather than ship a partial leak — do
+  not ship a "body[:32]+'...'" placeholder.
+- **Per-user permission errors are silently skipped.** Mirrors Phase
+  D's /var/spool/cron handling: when statedrift runs as a non-root
+  non-alice user, alice's mode-0600 authorized_keys is unreadable
+  but does not abort collection. Production runs should be root.
+
+## Phase C — manual tests
+
+Status legend: ✅ verified on 2026-05-04 · ☐ recommended, not yet run.
+
+### Smoke
+
+1. ☐ **Genesis as root surfaces ssh_keys.** `sudo statedrift init`
+   then inspect `.ssh_keys` in the resulting JSON. Hosts with at
+   least one logged-in user typically show 1–10 keys; pure-server
+   hosts may show only `/root/.ssh/authorized_keys`.
+2. ☐ **Hash chain verifies after multiple snapshots.** Two
+   back-to-back snaps as root, then `statedrift verify`. Catches
+   non-determinism in user iteration order or fingerprint encoding.
+3. ☐ **No key body in JSON.** `grep -E 'AAAA[A-Za-z0-9+/]{60,}'`
+   the snapshot file (or `jq -r '.ssh_keys[]' | grep AAAA`). Must
+   return nothing — base64 key bodies are 60+ char strings starting
+   with the canonical AAAA prefix; if any leak, this catches them.
+
+### Rule firing on realistic scenarios
+
+4. ☐ **R19 fires on new SSH key.** `sudo bash -c 'echo "ssh-ed25519
+   AAAA<…> attacker@laptop" >> /root/.ssh/authorized_keys'` →
+   `sudo statedrift snap` → `analyze`. Expect `R19_SSH_KEY_ADDED`
+   (critical). The auditor's nightmare scenario; if R19 misses this
+   the rule is broken.
+5. ☐ **R20 fires on key removal.** Snapshot a host with a known
+   authorized_keys entry, remove it, snapshot again, analyze.
+   Expect `R20_SSH_KEY_REMOVED` (medium).
+6. ☐ **Re-key surfaces as add+remove.** Replace an existing key with
+   a new one (different fingerprint, same user). Expect both R19 and
+   R20 to fire on the same diff.
+
+### Edge cases
+
+7. ☐ **Forced-command options redacted.** Add a key with
+   `command="bash -c 'AWS_SECRET_ACCESS_KEY=hunter2 deploy.sh'"`
+   prefix. Snap, then grep `hunter2` the JSON — must return nothing.
+8. ☐ **Service account in /var/lib found.** Some deploy users have
+   home dir `/var/lib/jenkins` or similar. Add a key, snap; the
+   user should appear in ssh_keys despite not being in /home.
+9. ☐ **authorized_keys2 also picked up.** Drop a key in
+   `~/.ssh/authorized_keys2` (legacy but still honored by sshd if
+   AuthorizedKeysFile points there). Confirm it appears in JSON
+   with `Source` ending in `authorized_keys2`.
+
+### Verified during Phase C development
+
+- ✅ Body never appears in any field of the parsed SSHKey, including
+  partial substrings of length ≥ 30 (covered by
+  `TestParseAuthorizedKeysLineNeverContainsBody`).
+- ✅ Forced-command options pass through `redactSecrets` (covered
+  by `TestParseAuthorizedKeysLineRedactsCommandSecrets`).
+- ✅ Permission-denied per-user authorized_keys does not abort
+  collection (covered by `TestReadSSHKeysFromUnreadableHomeIsBestEffort`).
+- ✅ OpenSSH user certificates (ssh-ed25519-cert-v01@openssh.com
+  etc.) recognized as valid keytypes (covered by
+  `TestParseAuthorizedKeysLineCertType`).
 
 ## Phase D — known limitations
 
