@@ -82,14 +82,13 @@ cat dist/release-notes-X.Y.Z.md                   # release notes are non-empty
 
 **Considerations**:
 
-- **Until rotation, ship with the placeholder `LICENSE_SECRET`.**
-  Both v0.2.0 and v0.3.0 shipped with the placeholder
-  (`PLACEHOLDER_DEV_BUILD_DO_NOT_SHIP`) because neither shipped any new
-  Pro features. Rotating to a real key invalidates every license signed
-  against the placeholder, so rotation is reserved for the moment any of:
-  the first paid Pro license is issued, the first real Pro feature ships,
-  or the Pro tier is publicly marketed. Cross-reference
-  `project_license_secret_rotation.md` before changing this on a release.
+- **`LICENSE_SECRET` is read from the environment at build time.** The
+  Makefile defaults to the development placeholder when unset. Changing
+  the secret across releases invalidates every license signed against
+  the prior key, so rotation is a deliberate, infrequent event. Do not
+  pass a non-default `LICENSE_SECRET` on a release build without first
+  consulting `project_license_secret_rotation.md` for the rotation
+  policy and timing.
 - **Linux-only build is intentional** (the agent reads `/proc` and `/sys`).
   No Windows or macOS target.
 - **No artifact signing (GPG / cosign).** Trust is the SHA256 file plus
@@ -203,8 +202,8 @@ One-time setups already complete (kept for reference):
 | Version | Tag commit | Shipped (UTC) | Notes |
 |---|---|---|---|
 | v0.2.0 | `af34f27` | 2026-04-29T00:34:26Z | First public release. Used `--draft` as a safety net: previewed in the UI, then promoted with `gh release edit v0.2.0 --draft=false`. |
-| v0.3.0 | `d2a5a78` | 2026-05-04T22:34:56Z | Free-tier value bump — five new always-on security-signal collectors (Phases A–E) and 12 new free anomaly rules (R14–R25). Skipped `--draft`; pushed main, waited for CI green on the new commits, then tagged + published. |
+| v0.3.0 | `d2a5a78` | 2026-05-04T22:34:56Z | Five always-on security-signal collectors (Phases A–E) and 12 new anomaly rules (R14–R25). Skipped `--draft`; pushed main, waited for CI green on the new commits, then tagged + published. |
 
-Both built with the placeholder `LICENSE_SECRET`. Rotation status is
-tracked in `project_license_secret_rotation.md`. See `CHANGELOG.md` for
-per-release feature lists.
+`LICENSE_SECRET` rotation status is tracked in
+`project_license_secret_rotation.md`. See `CHANGELOG.md` for per-release
+feature lists.
