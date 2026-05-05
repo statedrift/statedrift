@@ -423,7 +423,9 @@ For stronger guarantees:
 - Ship export bundles to an external, write-once storage location promptly
 - A future version will support external timestamping (posting head hashes to a transparency log)
 
-See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model.
+See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model. For
+the design rationale (architecture, data model, hash chain mechanics,
+identifier inventory), see [docs/DESIGN.md](docs/DESIGN.md).
 
 ## FAQ
 
