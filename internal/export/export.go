@@ -4,6 +4,8 @@ package export
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/statedrift/statedrift/internal/collector"
 	"github.com/statedrift/statedrift/internal/hasher"
+	"github.com/statedrift/statedrift/internal/redact"
 	"github.com/statedrift/statedrift/internal/store"
 )
 
@@ -40,12 +43,54 @@ type Manifest struct {
 	ChainHeadHash       string    `json:"chain_head_hash"` // hash of last snapshot
 	ChainVerified       bool      `json:"chain_verified"`
 	SnapshotIntervalAvg string    `json:"snapshot_interval_avg,omitempty"`
+
+	// Redaction is set when the bundle was produced with --redact-* flags.
+	// Absent on unredacted bundles. The presence of this field is the
+	// signal an auditor uses to know they're holding a redacted bundle;
+	// schema_version on the snapshots themselves does not change.
+	Redaction *RedactionInfo `json:"redaction,omitempty"`
 }
 
-// Bundle creates a .tar.gz export of snapshots in the given time range.
-// After writing, the bundle is self-verified; if verification fails the
-// output file is removed and an error is returned.
+// RedactionInfo records the export-time redaction applied to a bundle.
+// An internal party with the unredacted source chain can reproduce the
+// redacted bundle byte-for-byte using Mode + Salt + ToolVersion, providing
+// integrity for the redacted view despite the snapshot hashes being
+// different from the original chain.
+type RedactionInfo struct {
+	// Mode lists the categories applied: "network", "hostnames", or both.
+	// Sorted alphabetically for deterministic output.
+	Mode []string `json:"mode"`
+	// Salt is the hex-encoded HMAC-SHA256 key used to derive Cat B field
+	// hashes. Per-bundle random; preserved here so reproducibility is
+	// possible.
+	Salt string `json:"salt"`
+	// ToolVersion is the statedrift binary version that produced the
+	// redaction. Different versions may apply different rules.
+	ToolVersion string `json:"tool_version"`
+}
+
+// BundleOptions controls export behavior. The zero value produces an
+// unredacted bundle matching pre-v0.4 export semantics.
+type BundleOptions struct {
+	// Redaction selects which categories of Cat B identifiers to redact
+	// in the bundle. Zero value (no flags) writes snapshots verbatim.
+	Redaction redact.Options
+}
+
+// Bundle creates an unredacted .tar.gz export of snapshots in the given
+// time range. Equivalent to BundleWith with the zero options. After
+// writing, the bundle is self-verified; if verification fails the output
+// file is removed and an error is returned.
 func Bundle(s *store.Store, from, to time.Time, outputPath string) error {
+	return BundleWith(s, from, to, outputPath, BundleOptions{})
+}
+
+// BundleWith creates a .tar.gz export with the given options. When
+// opts.Redaction is non-zero, snapshots are redacted in-bundle and the
+// chain is rebuilt over the redacted snapshots — the bundle becomes a
+// new, internally-consistent chain that verify.sh / verify.ps1 verify
+// without modification.
+func BundleWith(s *store.Store, from, to time.Time, outputPath string, opts BundleOptions) error {
 	entries, err := s.List()
 	if err != nil {
 		return fmt.Errorf("listing snapshots: %w", err)
@@ -68,7 +113,84 @@ func Bundle(s *store.Store, from, to time.Time, outputPath string) error {
 		return fmt.Errorf("no snapshots found in range %s to %s", from.Format("2006-01-02"), to.Format("2006-01-02"))
 	}
 
-	// Build manifest
+	// Build snapshot bytes + hashes. For unredacted bundles the bytes are
+	// the original on-disk file and the hashes come from store. For
+	// redacted bundles we parse, redact, rechain, re-marshal, and
+	// re-hash; the resulting `prepared` slice carries the bytes that go
+	// into chain/ and the hashes that go into the manifest.
+	type prepared struct {
+		filename string
+		data     []byte
+		hash     string
+	}
+
+	var preps []prepared
+	var redactor *redact.Redactor
+	var redactionInfo *RedactionInfo
+
+	if opts.Redaction.Any() {
+		salt := make([]byte, redact.SaltSize)
+		if _, err := rand.Read(salt); err != nil {
+			return fmt.Errorf("generating redaction salt: %w", err)
+		}
+		redactor = redact.NewRedactor(opts.Redaction, salt)
+		redactionInfo = &RedactionInfo{
+			Mode:        redactionMode(opts.Redaction),
+			Salt:        hex.EncodeToString(salt),
+			ToolVersion: collector.Version,
+		}
+
+		var prevHash string
+		for i, e := range selected {
+			raw, err := os.ReadFile(e.Path)
+			if err != nil {
+				return fmt.Errorf("reading snapshot %s: %w", e.Path, err)
+			}
+			var snap collector.Snapshot
+			if err := json.Unmarshal(raw, &snap); err != nil {
+				return fmt.Errorf("parsing snapshot %s: %w", e.Path, err)
+			}
+			redact.Apply(&snap, redactor)
+			// Re-link to the previous redacted snapshot's hash. The
+			// first snapshot keeps its original PrevHash so a partial-
+			// range export remains attributable to a known predecessor
+			// in the source chain (VerifyBundle does not check the
+			// first snapshot's PrevHash, so this is purely
+			// informational and does not affect verification).
+			if i > 0 {
+				snap.PrevHash = prevHash
+			}
+			data, err := json.Marshal(&snap)
+			if err != nil {
+				return fmt.Errorf("marshaling redacted snapshot %d: %w", i, err)
+			}
+			h, err := hasher.Hash(&snap)
+			if err != nil {
+				return fmt.Errorf("hashing redacted snapshot %d: %w", i, err)
+			}
+			preps = append(preps, prepared{
+				filename: snap.Timestamp.Format("20060102-150405") + ".json",
+				data:     data,
+				hash:     h,
+			})
+			prevHash = h
+		}
+	} else {
+		for _, e := range selected {
+			data, err := os.ReadFile(e.Path)
+			if err != nil {
+				return fmt.Errorf("reading snapshot %s: %w", e.Path, err)
+			}
+			preps = append(preps, prepared{
+				filename: e.Snapshot.Timestamp.Format("20060102-150405") + ".json",
+				data:     data,
+				hash:     e.Hash,
+			})
+		}
+	}
+
+	// Build manifest. ChainRootHash and ChainHeadHash come from preps so
+	// the redacted-vs-unredacted distinction is captured automatically.
 	manifest := Manifest{
 		Version:       collector.Version,
 		CreatedAt:     time.Now().UTC(),
@@ -78,9 +200,18 @@ func Bundle(s *store.Store, from, to time.Time, outputPath string) error {
 		RangeStart:    selected[0].Snapshot.Timestamp,
 		RangeEnd:      selected[len(selected)-1].Snapshot.Timestamp,
 		SnapshotCount: len(selected),
-		ChainRootHash: selected[0].Hash,
-		ChainHeadHash: selected[len(selected)-1].Hash,
+		ChainRootHash: preps[0].hash,
+		ChainHeadHash: preps[len(preps)-1].hash,
 		ChainVerified: true,
+		Redaction:     redactionInfo,
+	}
+
+	if redactionInfo != nil {
+		// The Hostname field is itself a Cat B identifier — replace with
+		// the redacted form so the manifest does not leak what the
+		// snapshot bodies have hidden. Other manifest fields (OS,
+		// Kernel, RangeStart, RangeEnd) are not Cat B.
+		manifest.Hostname = redactor.HashHost(selected[0].Snapshot.Host.Hostname)
 	}
 
 	if len(selected) >= 2 {
@@ -106,14 +237,9 @@ func Bundle(s *store.Store, from, to time.Time, outputPath string) error {
 	manifestData, _ := json.MarshalIndent(manifest, "", "  ")
 	addFileToTar(tw, bundleName+"/manifest.json", manifestData)
 
-	// Add snapshots
-	for _, e := range selected {
-		data, err := os.ReadFile(e.Path)
-		if err != nil {
-			continue
-		}
-		filename := e.Snapshot.Timestamp.Format("20060102-150405") + ".json"
-		addFileToTar(tw, bundleName+"/chain/"+filename, data)
+	// Add snapshots (redacted or verbatim per the prepared slice).
+	for _, p := range preps {
+		addFileToTar(tw, bundleName+"/chain/"+p.filename, p.data)
 	}
 
 	// Add verify.sh (Linux/macOS auditors)
@@ -158,6 +284,20 @@ func Bundle(s *store.Store, from, to time.Time, outputPath string) error {
 	}
 
 	return nil
+}
+
+// redactionMode renders Options as a sorted list of mode names for the
+// manifest. Order is deterministic so two bundles with the same flags
+// produce identical manifest output.
+func redactionMode(o redact.Options) []string {
+	var modes []string
+	if o.Hostnames {
+		modes = append(modes, "hostnames")
+	}
+	if o.Network {
+		modes = append(modes, "network")
+	}
+	return modes
 }
 
 // VerifyBundle reads a .tar.gz export bundle and verifies its hash chain.

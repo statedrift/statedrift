@@ -25,6 +25,7 @@ import (
 	"github.com/statedrift/statedrift/internal/export"
 	"github.com/statedrift/statedrift/internal/hasher"
 	"github.com/statedrift/statedrift/internal/license"
+	"github.com/statedrift/statedrift/internal/redact"
 	"github.com/statedrift/statedrift/internal/rules"
 	"github.com/statedrift/statedrift/internal/store"
 	"github.com/statedrift/statedrift/internal/timefmt"
@@ -1030,20 +1031,32 @@ func cmdExport(s *store.Store) {
 	requireInit(s)
 
 	var fromStr, toStr, output string
+	var redactOpts redact.Options
 
-	for i := 2; i < len(os.Args)-1; i++ {
-		switch os.Args[i] {
+	for i := 2; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		switch arg {
 		case "--from":
-			fromStr = os.Args[i+1]
+			if i+1 < len(os.Args) {
+				fromStr = os.Args[i+1]
+			}
 		case "--to":
-			toStr = os.Args[i+1]
+			if i+1 < len(os.Args) {
+				toStr = os.Args[i+1]
+			}
 		case "-o", "--output":
-			output = os.Args[i+1]
+			if i+1 < len(os.Args) {
+				output = os.Args[i+1]
+			}
+		case "--redact-network":
+			redactOpts.Network = true
+		case "--redact-hostnames":
+			redactOpts.Hostnames = true
 		}
 	}
 
 	if fromStr == "" || toStr == "" {
-		fatal("usage: statedrift export --from YYYY-MM-DD --to YYYY-MM-DD -o output.tar.gz")
+		fatal("usage: statedrift export --from YYYY-MM-DD --to YYYY-MM-DD -o output.tar.gz [--redact-network] [--redact-hostnames]")
 	}
 
 	from, err := tf.ParseDate(fromStr)
@@ -1061,7 +1074,9 @@ func cmdExport(s *store.Store) {
 		output = fmt.Sprintf("statedrift-export-%s-%s.tar.gz", fromStr, toStr)
 	}
 
-	// Verify chain before exporting
+	// Verify chain before exporting. The local chain is the unredacted
+	// source of truth; redaction is an export-time transform applied on
+	// top of a healthy chain, never a way to paper over corruption.
 	fmt.Println("Verifying chain before export...")
 	_, brokenAt, err := s.VerifyChain()
 	if err != nil {
@@ -1072,14 +1087,31 @@ func cmdExport(s *store.Store) {
 	}
 	fmt.Println("  Chain: ✓ verified")
 
+	if redactOpts.Any() {
+		var modes []string
+		if redactOpts.Network {
+			modes = append(modes, "network")
+		}
+		if redactOpts.Hostnames {
+			modes = append(modes, "hostnames")
+		}
+		fmt.Printf("Redaction enabled: %s\n", strings.Join(modes, ", "))
+	}
+
 	fmt.Println("Exporting snapshots...")
-	if err := export.Bundle(s, from, to, output); err != nil {
+	if err := export.BundleWith(s, from, to, output, export.BundleOptions{Redaction: redactOpts}); err != nil {
 		fatal("export failed: %v", err)
 	}
 	fmt.Println("  Bundle verified ✓")
 
 	fmt.Printf("\nCreated: %s\n", output)
-	fmt.Println("\nAn auditor can verify this bundle by running:")
+	if redactOpts.Any() {
+		fmt.Println("\nThis is a REDACTED bundle. Cat B identifiers (per the selected")
+		fmt.Println("flags) are replaced with deterministic per-bundle hashes; the")
+		fmt.Println("local chain remains verbatim. An auditor can verify this bundle:")
+	} else {
+		fmt.Println("\nAn auditor can verify this bundle by running:")
+	}
 	fmt.Printf("  tar xzf %s && cd %s && ./verify.sh\n",
 		output, strings.TrimSuffix(output, ".tar.gz"))
 }
