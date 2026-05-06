@@ -13,25 +13,28 @@ operators, with an optional Pro tier for fleet baselining and policy.
   R11-R13 (Pro). `watch` command with webhook alerts. Pro license
   framework. Audit bundles add a Windows-native `verify.ps1` alongside
   `verify.sh`.
+- **v0.3.0** — Free-tier security signals: users/groups/sudoers,
+  loaded kernel modules with signatures, SSH authorized keys, cron
+  jobs and systemd timers, mount points. Adds rules R14-R25 to the
+  free anomaly engine. Snapshots gain a `schema_version` field.
 
-## In progress — v0.3.0
+## In progress — v0.4.0
 
-Free-tier security signal expansion:
+Security completeness. Process forensics (carried from v0.3),
+`statedrift export --redact-*` flags, SELinux / AppArmor enforcement
+state, firewall rule hashing, limited filesystem hash diff for
+named files, and `statedrift baseline` (`pin` / `check`) for ad-hoc
+compliance checks against a pinned snapshot. Adds rules R26-R32 to
+the free anomaly engine.
 
-- User and group changes (`/etc/passwd`, `/etc/group`, sudoers)
-- Loaded kernel modules and their signatures
-- SSH authorized keys across all home directories
-- Cron jobs and systemd timers
-- Mount points and filesystem types
+Pro: `statedrift report` — auditor-grade signed PDF / HTML report
+summarizing a baseline-vs-current diff with embedded chain
+verification.
 
-Adds rules R14-R25 to the free anomaly engine.
+See `docs/V04_PLAN.md` for the full phase breakdown.
 
 ## Planned
 
-- **v0.4.0 — Security completeness.** SELinux / AppArmor enforcement
-  state. Limited filesystem hash diff. Firewall rule hashing.
-  `statedrift baseline` for ad-hoc compliance checks against a saved
-  known-good state.
 - **v0.5.0 — Pro depth.** Recursive filesystem hash trees with
   structural diff. Rule-by-rule firewall diff. Customizable policy rules.
 - **v0.6.0 — Fleet (Pro).** Baseline export / import / compare across
@@ -53,6 +56,6 @@ fleet, and custom policy.
 
 Open an issue or discussion at
 [github.com/statedrift/statedrift](https://github.com/statedrift/statedrift)
-to shape the order. Items in v0.3 and v0.4 are firmer; v0.5 and v0.6
-are softer. If you have a concrete use case that should jump the queue,
+to shape the order. Items in v0.4 are firmer; v0.5 and v0.6 are
+softer. If you have a concrete use case that should jump the queue,
 please say so.
