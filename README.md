@@ -263,6 +263,20 @@ The bundle is a `.tar.gz` containing:
 | `--from YYYY-MM-DD` | Start date (inclusive) |
 | `--to YYYY-MM-DD` | End date (inclusive) |
 | `-o, --output <file>` | Output filename (default: `statedrift-export-FROM-TO.tar.gz`) |
+| `--redact-network` | Replace IPs, MAC addresses, route gateways/destinations, DNS nameservers, and connection endpoints with deterministic per-bundle hashes |
+| `--redact-hostnames` | Replace hostnames, machine/boot IDs, usernames, group membership, sudoers lines, SSH key user/comment, and network mount sources with deterministic per-bundle hashes |
+
+Redaction flags can be combined. Use them when shipping a bundle to an
+external auditor / support ticket / public bug report:
+
+```bash
+statedrift export --from 2026-03-01 --to 2026-03-22 -o audit-redacted.tar.gz \
+    --redact-network --redact-hostnames
+```
+
+The local chain is never redacted; only the bundle is. See
+`docs/DESIGN.md` §4.5 for the full Cat B identifier inventory and §4.6
+for the redaction trust model.
 
 ---
 

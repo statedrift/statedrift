@@ -324,34 +324,39 @@ diffing snapshots needs the actual IPs and usernames; hashing them at
 collect time would destroy the tool's value). They become a concern
 only when an audit bundle leaves the operator's premises.
 
-| Section | Field | Identifier type |
-|---|---|---|
-| `host` | `hostname` | Host identity |
-| `host` | `machine_id` | Stable per-OS-install identifier |
-| `host` | `boot_id` | Per-boot identifier |
-| `network.interfaces` | `mac` | MAC address (Cat B for fleet) |
-| `network.interfaces` | `addresses` | IPv4/IPv6 addresses |
-| `network.routes` | `gateway`, `destination` | IP / CIDR |
-| `network.dns` | `nameservers`, `search_domains` | IP and DNS name |
-| `listening_ports` | `address`, `process` | IP + process name |
-| `connections` (optional) | `local_addr`, `remote_addr`, `process` | Endpoint pairs and process names |
-| `users` | `name`, `home`, `gecos`, `shell` | Login name + display name + path |
-| `groups` | `name`, `members` | Group and membership composition |
-| `sudoers[].line` | full normalized line | Includes usernames, hostnames, command paths |
-| `cron_jobs` | `user`, `command` (post-redaction) | Runtime identity + command string |
-| `systemd_timers` | `description`, `unit` | Free-text labels |
-| `ssh_keys` | `user`, `comment`, `fingerprint` | Login name + free-text label + key fingerprint |
-| `mounts` | `source`, `mount_point` | Includes remote-mount sources like `//server/share` |
-| `processes` (optional) | `comm` | Process command name |
-| `services` | unit names | Unit names can leak deployment topology |
+| Section | Field | Identifier type | Redacted by |
+|---|---|---|---|
+| `host` | `hostname` | Host identity | `--redact-hostnames` |
+| `host` | `machine_id` | Stable per-OS-install identifier | `--redact-hostnames` |
+| `host` | `boot_id` | Per-boot identifier | `--redact-hostnames` |
+| `network.interfaces` | `mac` | MAC address (Cat B for fleet) | `--redact-network` |
+| `network.interfaces` | `addresses` | IPv4/IPv6 addresses | `--redact-network` |
+| `network.routes` | `gateway`, `destination` | IP / CIDR | `--redact-network` |
+| `network.dns` | `nameservers` | IP | `--redact-network` |
+| `network.dns` | `search_domains` | DNS name | `--redact-hostnames` |
+| `listening_ports` | `address` | IP | `--redact-network` |
+| `listening_ports` | `process` | Process name | (not covered — see below) |
+| `connections` (optional) | `local_addr`, `remote_addr` | Endpoint pairs | `--redact-network` |
+| `connections` (optional) | `process` | Process name | (not covered) |
+| `users` | `name`, `home`, `gecos` | Login name + display name + path | `--redact-hostnames` |
+| `users` | `shell` | (not Cat B) | — |
+| `groups` | `name`, `members` | Group and membership composition | `--redact-hostnames` |
+| `sudoers[].line` | full normalized line | Includes usernames, hostnames, command paths | `--redact-hostnames` (whole-line hashed) |
+| `cron_jobs` | `user` | Runtime identity | `--redact-hostnames` |
+| `cron_jobs` | `command` | Already Cat A redacted at collect | (not Cat B) |
+| `systemd_timers` | `description`, `unit` | Free-text labels | `--redact-hostnames` |
+| `ssh_keys` | `user`, `comment`, `source` | Login name + free-text label + path | `--redact-hostnames` |
+| `ssh_keys` | `fingerprint`, `type`, `options` | Key metadata (Cat A already handled) | (not Cat B) |
+| `mounts` | `source` (network shares only) | `//server/share`, `host:/path` | `--redact-hostnames` |
+| `mounts` | `source` (local block / pseudofs) | `/dev/sda1`, `tmpfs`, `proc` | (not Cat B) |
+| `mounts` | `mount_point` | Local filesystem layout | (not Cat B) |
+| `processes` (optional) | `comm` | Process binary name | (not covered) |
+| `services` | unit names | Unit names can leak deployment topology | (not covered) |
 
 Operators preparing to send an audit bundle externally should treat the
-above as the surface to review. v0.4 will ship `statedrift export
---redact-network --redact-hostnames` flags that hash Cat B identifiers
-deterministically inside the bundle (so structural relationships
-survive — same IP gets the same hash within the bundle — without leaking
-the real values). Until those flags ship, manual review is the
-recommendation.
+above as the surface to review. v0.4 ships `statedrift export
+--redact-network --redact-hostnames` (see §4.6 below); for fields marked
+"not covered" above, manual review remains the only mitigation.
 
 What the bundle does **not** contain (verified by tests in
 `internal/collector/`):
@@ -363,6 +368,97 @@ What the bundle does **not** contain (verified by tests in
 
 If a pattern is missed and a secret leaks, the right fix is updating
 the redactor pattern list, not re-handling at the site of leakage.
+
+### 4.6 Redaction modes (`--redact-*` flags)
+
+`statedrift export` accepts two flags that produce a redacted bundle:
+
+```
+statedrift export --from <date> --to <date> -o bundle.tar.gz \
+    --redact-network --redact-hostnames
+```
+
+Either flag can be passed alone or together. Selecting one does not
+imply the other — an operator can ship a "hostnames only" bundle that
+still carries real IPs, or vice versa.
+
+**What the redactor replaces.** Each field in the §4.5 inventory marked
+with a flag is replaced by an HMAC-SHA256-derived tagged hash of its
+original value: `ip:e3fe802e89e8`, `host:c80530af83aa`,
+`user:1e0f9b3c4a2d`, etc. The 12-hex-char truncation gives 1-in-2.8e14
+collision probability per pair — plenty for a single bundle, increase
+the constant in `internal/redact/redact.go` if a customer hits a
+collision in real data. The tag prefix is part of the HMAC input, so
+the same string under different prefixes hashes differently (a username
+"alice" and a hostname "alice" do not collide).
+
+**Trust model — deterministic redaction.** The HMAC key is a 32-byte
+random salt generated per bundle and stored in `manifest.json` under
+`redaction.salt`. The redacted bundle is itself a well-formed hash
+chain: each redacted snapshot is re-hashed and the next snapshot's
+`prev_hash` is updated to point at the new value. `verify.sh` and
+`verify.ps1` work without modification — the bundle's internal chain
+verifies just like an unredacted one.
+
+The integrity property is: anyone with the original local chain plus
+the bundle's salt can reproduce the redacted bundle byte-for-byte. An
+operator who tries to substitute a *different* snapshot under the
+cover of "redaction" would have to break HMAC-SHA256 to produce
+matching hashes. External auditors verify *internal chain
+consistency* (and that the bundle has not been tampered after it was
+written); the operator-honesty check requires the unredacted source
+chain and is therefore an internal-only check.
+
+**Cross-bundle correlation deliberately broken.** The salt is per
+bundle, so the same host at two different export times produces
+different hashes for the same hostname / IP / username. This prevents
+an external observer accumulating a fingerprint across multiple
+bundles. The trade-off is that an auditor receiving two bundles cannot
+independently determine "this is the same host." If a customer needs
+fleet-correlatable redaction, ship a `--redaction-salt FILE` flag in a
+later release.
+
+**Sudoers lines hashed whole.** sudoers grammar mixes usernames,
+hostnames, and command paths, and statedrift does not ship a sudoers
+parser. The whole normalized line is hashed as one opaque value when
+`--redact-hostnames` is set. External auditors lose per-rule
+readability; internal incident responders retain the verbatim local
+chain.
+
+**Mount source pattern detection.** Local block devices (`/dev/sda1`)
+and pseudofs (`tmpfs`, `proc`, `sysfs`, `overlay`, `none`) are not
+Cat B and stay verbatim. Network sources are detected by the heuristic
+"starts with `//` or contains `:/`" (`internal/redact/redact.go`,
+`IsNetworkMountSource`). Exotic schemes (`ipfs://...`, custom FUSE
+drivers with hostname-bearing source strings) may slip through and stay
+verbatim — extend the helper there rather than at call sites.
+
+**Deliberate non-coverage.** The fields marked "not covered" in the
+§4.5 inventory remain verbatim under both flags:
+
+- **PIDs** — process startup-order is fingerprinting but not personally
+  identifying. Promote to `--redact-pids` if customers ask.
+- **`processes[].comm`, `listening_ports.process`,
+  `connections.process`** — process binary names like `sshd`, `nginx`,
+  `postgres`. Operationally identifying but rarely host-identifying.
+- **`services` unit names** — same class.
+
+These choices reflect the v0.4 scope; promote individual flags if
+real-world deployments need finer-grained control.
+
+**Manifest fields.** `manifest.json` for a redacted bundle:
+
+- `hostname` — also redacted (a Cat B identifier; the manifest must
+  not leak what the chain bodies have hidden).
+- `redaction.mode` — sorted list of applied flags: `["hostnames"]`,
+  `["network"]`, or `["hostnames", "network"]`.
+- `redaction.salt` — 64 hex chars.
+- `redaction.tool_version` — the binary version that produced the
+  redaction. Different versions may apply different rules.
+
+Snapshots' `schema_version` is unchanged — the presence of
+`manifest.redaction` is the signal an auditor uses to know they're
+holding a redacted bundle.
 
 ---
 
