@@ -152,6 +152,15 @@ func collectProcesses(topN int) (*ProcessInventory, error) {
 		if err != nil {
 			continue // process may have exited; skip gracefully
 		}
+		// /proc/[pid]/stat provides utime, stime, starttime. Failure here is
+		// non-fatal: the process may have exited between status and stat reads,
+		// or stat may be permission-denied for processes we don't own. We
+		// keep the Process entry from status but leave the tick fields zero.
+		if u, s, st, err := readProcStat(pid); err == nil {
+			p.UTimeTicks = u
+			p.STimeTicks = s
+			p.StartTicks = st
+		}
 		procs = append(procs, p)
 	}
 
@@ -219,12 +228,59 @@ func readProcStatusFrom(path string, pid int) (Process, error) {
 			if len(fields) >= 1 {
 				p.VMSKB, _ = strconv.ParseUint(fields[0], 10, 64)
 			}
+		case "Threads":
+			p.Threads, _ = strconv.Atoi(val)
 		}
 	}
 	if p.Comm == "" {
 		return p, fmt.Errorf("pid %d: no Name in status", pid)
 	}
 	return p, nil
+}
+
+// readProcStat parses /proc/<pid>/stat and returns (utime, stime, starttime)
+// in clock ticks. The format is documented in proc(5): the first two fields
+// are pid and comm (the latter parenthesized and possibly containing spaces),
+// followed by space-separated fields. utime is field 14, stime field 15,
+// starttime field 22 (1-indexed per proc(5)).
+func readProcStat(pid int) (utime, stime, starttime uint64, err error) {
+	path := fmt.Sprintf("/proc/%d/stat", pid)
+	return readProcStatFrom(path)
+}
+
+// readProcStatFrom is the testable variant of readProcStat.
+func readProcStatFrom(path string) (utime, stime, starttime uint64, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	// comm may contain spaces and parentheses; the kernel guarantees comm is
+	// the substring between the first '(' and the last ')'. Everything after
+	// that last ')' is space-separated.
+	s := string(data)
+	rp := strings.LastIndexByte(s, ')')
+	if rp < 0 || rp+1 >= len(s) {
+		return 0, 0, 0, fmt.Errorf("malformed /proc/<pid>/stat: no closing paren in %q", path)
+	}
+	rest := strings.TrimSpace(s[rp+1:])
+	fields := strings.Fields(rest)
+	// rest starts at field 3 (state). utime=14, stime=15, starttime=22 → indices 14-3=11, 15-3=12, 22-3=19.
+	if len(fields) < 20 {
+		return 0, 0, 0, fmt.Errorf("malformed /proc/<pid>/stat: only %d fields after comm in %q", len(fields), path)
+	}
+	utime, err = strconv.ParseUint(fields[11], 10, 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("utime: %w", err)
+	}
+	stime, err = strconv.ParseUint(fields[12], 10, 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("stime: %w", err)
+	}
+	starttime, err = strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("starttime: %w", err)
+	}
+	return utime, stime, starttime, nil
 }
 
 // collectSockets reads /proc/net/tcp, /proc/net/tcp6, /proc/net/udp, /proc/net/udp6
