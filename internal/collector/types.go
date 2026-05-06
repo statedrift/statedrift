@@ -144,14 +144,26 @@ type ProcessInventory struct {
 	TopByRSS   []Process `json:"top_by_rss"` // sorted descending by RSS
 }
 
-// Process is a single process entry from /proc/<pid>/status and /proc/<pid>/statm.
+// Process is a single process entry from /proc/<pid>/status and /proc/<pid>/stat.
+//
+// v0.4 adds Threads, UTimeTicks, STimeTicks, StartTicks. Tick fields are
+// cumulative since process start (UTime, STime) or since boot (StartTicks),
+// expressed in clock ticks (typically 100 Hz on Linux). CPU% is computed at
+// diff time from the delta of (UTimeTicks+STimeTicks) divided by wall-clock
+// elapsed seconds. StartTicks is used to detect PID reuse across snapshots:
+// same PID with different StartTicks means the original process exited and a
+// new one took its slot.
 type Process struct {
-	PID   int    `json:"pid"`
-	PPID  int    `json:"ppid"`
-	Comm  string `json:"comm"`
-	State string `json:"state"`
-	RSSKB uint64 `json:"rss_kb"`
-	VMSKB uint64 `json:"vms_kb"`
+	PID        int    `json:"pid"`
+	PPID       int    `json:"ppid"`
+	Comm       string `json:"comm"`
+	State      string `json:"state"`
+	RSSKB      uint64 `json:"rss_kb"`
+	VMSKB      uint64 `json:"vms_kb"`
+	Threads    int    `json:"threads,omitempty"`
+	UTimeTicks uint64 `json:"utime_ticks,omitempty"`
+	STimeTicks uint64 `json:"stime_ticks,omitempty"`
+	StartTicks uint64 `json:"start_ticks,omitempty"`
 }
 
 // SocketInventory captures socket counts per process from /proc/net/tcp and /proc/net/udp.

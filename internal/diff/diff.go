@@ -83,7 +83,8 @@ func Compare(old, new *collector.Snapshot) *Result {
 		diffKernelCounters(old.KernelCounters, new.KernelCounters, r)
 	}
 	if old.Processes != nil || new.Processes != nil {
-		diffProcesses(old.Processes, new.Processes, r)
+		wallSec := new.Timestamp.Sub(old.Timestamp).Seconds()
+		diffProcesses(old.Processes, new.Processes, wallSec, r)
 	}
 	if old.Sockets != nil || new.Sockets != nil {
 		diffSockets(old.Sockets, new.Sockets, r)
@@ -447,9 +448,20 @@ func diffKernelCounters(old, new *collector.KernelCounters, r *Result) {
 	diffCounterMap("kernel_counters.udp", old.UDP, new.UDP)
 }
 
-// diffProcesses compares process inventories. RSS changes are counters; appearing/disappearing
-// processes are material changes.
-func diffProcesses(old, new *collector.ProcessInventory, r *Result) {
+// diffProcesses compares process inventories. RSS changes are counters;
+// appearing/disappearing processes are material changes. v0.4 adds:
+//   - PID reuse detection via StartTicks: same PID with different StartTicks
+//     is reported as removed+added rather than modified.
+//   - CPU% computed from the delta of (utime+stime) ticks divided by
+//     wallSec * clockTicksPerSec. Emitted as a counter change.
+//   - PPID change emits "<pid>.ppid" (R26 reparented).
+//   - Transition into zombie state (Z) emits "<pid>.zombie" (R27).
+//   - Thread-count growth past a threshold emits "<pid>.thread_explosion"
+//     (R28). Tuned to catch growth, not absolute count.
+//
+// wallSec is the wall-clock seconds between the two snapshots. Pass 0 to
+// suppress CPU% emission (e.g., in tests where the timestamps are equal).
+func diffProcesses(old, new *collector.ProcessInventory, wallSec float64, r *Result) {
 	if old == nil {
 		old = &collector.ProcessInventory{}
 	}
@@ -482,6 +494,19 @@ func diffProcesses(old, new *collector.ProcessInventory, r *Result) {
 				fmt.Sprintf("rss=%dkB", op.RSSKB), "", false})
 			continue
 		}
+		// PID reuse: same PID, different start_ticks (when both are populated).
+		// Treat as removed+added so we don't generate spurious R26/R27 from a
+		// fresh process that happens to occupy a recycled PID.
+		if op.StartTicks != 0 && np.StartTicks != 0 && op.StartTicks != np.StartTicks {
+			r.Changes = append(r.Changes, Change{"processes", "removed",
+				fmt.Sprintf("%d (%s)", pid, op.Comm),
+				fmt.Sprintf("rss=%dkB", op.RSSKB), "", false})
+			r.Changes = append(r.Changes, Change{"processes", "added",
+				fmt.Sprintf("%d (%s)", pid, np.Comm),
+				"", fmt.Sprintf("rss=%dkB (pid reused)", np.RSSKB), false})
+			continue
+		}
+
 		// RSS delta is a counter change
 		if op.RSSKB != np.RSSKB {
 			delta := int64(np.RSSKB) - int64(op.RSSKB)
@@ -489,6 +514,56 @@ func diffProcesses(old, new *collector.ProcessInventory, r *Result) {
 				fmt.Sprintf("%d (%s).rss_kb", pid, op.Comm),
 				fmt.Sprintf("%d", op.RSSKB),
 				fmt.Sprintf("%d (delta: %+d)", np.RSSKB, delta), true})
+		}
+
+		// PPID change → R26 reparented. Material.
+		if op.PPID != np.PPID {
+			r.Changes = append(r.Changes, Change{"processes", "modified",
+				fmt.Sprintf("%d (%s).ppid", pid, op.Comm),
+				fmt.Sprintf("%d", op.PPID),
+				fmt.Sprintf("%d", np.PPID), false})
+		}
+
+		// Zombie transition → R27. Only emit on the transition INTO Z; a
+		// process already in Z that stays in Z is not a new event.
+		if op.State != "Z" && np.State == "Z" {
+			r.Changes = append(r.Changes, Change{"processes", "modified",
+				fmt.Sprintf("%d (%s).zombie", pid, op.Comm),
+				op.State, np.State, false})
+		}
+
+		// Thread explosion → R28. Catch growth, not absolute count: require
+		// both an absolute delta of >= 100 AND new > 2 * old + 1 (so a JVM
+		// going 200 → 220 doesn't fire, but a thread bomb 1 → 500 does).
+		if np.Threads-op.Threads >= 100 && np.Threads > 2*op.Threads+1 {
+			r.Changes = append(r.Changes, Change{"processes", "modified",
+				fmt.Sprintf("%d (%s).thread_explosion", pid, op.Comm),
+				fmt.Sprintf("%d", op.Threads),
+				fmt.Sprintf("%d (delta: %+d)", np.Threads, np.Threads-op.Threads), false})
+		}
+
+		// CPU% from cumulative tick delta and wall-clock delta. Emitted as a
+		// counter (ops-noise, not material). Skipped when we don't have ticks
+		// from both snapshots, when wallSec is non-positive, or when start_ticks
+		// indicates the process started after the old snapshot was taken.
+		if wallSec > 0 && op.StartTicks != 0 && np.StartTicks != 0 {
+			// clockTicksPerSec is _SC_CLK_TCK from sysconf. Hardcoded to 100,
+			// the kernel default on x86_64/arm64 Linux for ~two decades. If
+			// you ship statedrift on a tickless or HZ=250/HZ=1000 kernel,
+			// CPU% will be off by a constant factor. Documented in
+			// docs/V04_PLAN.md.
+			const clockTicksPerSec = 100.0
+			oldTicks := op.UTimeTicks + op.STimeTicks
+			newTicks := np.UTimeTicks + np.STimeTicks
+			if newTicks >= oldTicks {
+				deltaSec := float64(newTicks-oldTicks) / clockTicksPerSec
+				cpuPct := deltaSec / wallSec * 100
+				if cpuPct > 0.05 { // suppress floating-point noise
+					r.Changes = append(r.Changes, Change{"processes", "modified",
+						fmt.Sprintf("%d (%s).cpu_pct", pid, op.Comm),
+						"", fmt.Sprintf("%.1f", cpuPct), true})
+				}
+			}
 		}
 	}
 	// New processes that appeared in top-N

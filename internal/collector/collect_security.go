@@ -278,6 +278,7 @@ func shouldSkipSudoersInclude(name string) bool {
 // limitations" for rationale and the planned re-evaluation when the cron
 // pattern-redactor lands in Phase D.
 
-// SchemaVersionV03 is the value written into Snapshot.SchemaVersion by v0.3
+// SchemaVersionV04 is the value written into Snapshot.SchemaVersion by v0.4+
 // binaries. Bumped when the schema changes in a way callers should notice.
-const SchemaVersionV03 = "0.3"
+// v0.3 wrote "0.3"; v0.4 added Process tick fields, Threads, and start_ticks.
+const SchemaVersionV04 = "0.4"

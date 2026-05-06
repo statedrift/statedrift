@@ -376,6 +376,52 @@ func TestEvaluatePhaseBRulesAreFreeTier(t *testing.T) {
 	}
 }
 
+// --- v0.4 Phase F: R26_PROCESS_REPARENTED, R27_PROCESS_ZOMBIE, R28_PROCESS_THREAD_EXPLOSION ---
+
+func TestEvaluateR26ProcessReparented(t *testing.T) {
+	changes := []Change{{Section: "processes", Type: "modified", Key: "100 (child).ppid",
+		OldValue: "50", NewValue: "1"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R26_PROCESS_REPARENTED") {
+		t.Error("expected R26_PROCESS_REPARENTED to fire on .ppid change")
+	}
+}
+
+func TestEvaluateR27ProcessZombie(t *testing.T) {
+	changes := []Change{{Section: "processes", Type: "modified", Key: "100 (myapp).zombie",
+		OldValue: "S", NewValue: "Z"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R27_PROCESS_ZOMBIE") {
+		t.Error("expected R27_PROCESS_ZOMBIE to fire on .zombie change")
+	}
+}
+
+func TestEvaluateR28ProcessThreadExplosion(t *testing.T) {
+	changes := []Change{{Section: "processes", Type: "modified", Key: "100 (bomb).thread_explosion",
+		OldValue: "1", NewValue: "500 (delta: +499)"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R28_PROCESS_THREAD_EXPLOSION") {
+		t.Error("expected R28_PROCESS_THREAD_EXPLOSION to fire on .thread_explosion change")
+	}
+}
+
+func TestEvaluatePhaseFRulesAreFreeTier(t *testing.T) {
+	for _, id := range []string{"R26_PROCESS_REPARENTED", "R27_PROCESS_ZOMBIE", "R28_PROCESS_THREAD_EXPLOSION"} {
+		for _, r := range DefaultRules() {
+			if r.ID == id && r.Pro {
+				t.Errorf("%s should be free-tier (Pro=false)", id)
+			}
+		}
+	}
+}
+
+// R26 must not fire on a regular RSS change — KeyPattern *.ppid should not
+// match keys like "100 (proc).rss_kb".
+func TestEvaluateR26NotFiredByRSSChange(t *testing.T) {
+	changes := []Change{{Section: "processes", Type: "modified", Key: "100 (proc).rss_kb",
+		OldValue: "1000", NewValue: "2000", Counter: true}}
+	if containsRule(Evaluate(DefaultRules(), changes, false), "R26_PROCESS_REPARENTED") {
+		t.Error("R26 must not fire on RSS-only change")
+	}
+}
+
 func containsRule(findings []Finding, id string) bool {
 	for _, f := range findings {
 		if f.Rule.ID == id {
