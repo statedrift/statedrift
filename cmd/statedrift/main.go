@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/statedrift/statedrift/internal/baseline"
 	"github.com/statedrift/statedrift/internal/collector"
 	"github.com/statedrift/statedrift/internal/config"
 	"github.com/statedrift/statedrift/internal/daemon"
@@ -105,6 +106,8 @@ func main() {
 		cmdWatch(s, cfg)
 	case "analyze":
 		cmdAnalyze(s, cfg)
+	case "baseline":
+		cmdBaseline(s)
 	case "version":
 		fmt.Printf("statedrift %s (built %s)\n", collector.Version, collector.BuildDate)
 	case "help", "--help", "-h":
@@ -137,6 +140,7 @@ Commands:
   daemon       Run continuous snapshot collection
   watch        Continuously snap and alert on material changes
   analyze      Evaluate anomaly rules against latest diff  [free/Pro]
+  baseline     Pin a known-good snapshot and check current state against it
   gc           Remove snapshots older than retention_days
   version      Print version info
   help <cmd>   Show detailed help for a command
@@ -1291,6 +1295,140 @@ func daemonSnap(s *store.Store, cfg *config.Config) {
 		return
 	}
 	fmt.Printf("[%s] ✓ hash: %s\n", tf.RFC3339(snap.Timestamp), hash[:16]+"...")
+}
+
+// cmdBaseline dispatches the `statedrift baseline <subcommand>` family.
+// `check` will land in Phase K; this dispatcher accepts it now and emits
+// a placeholder so users see a consistent surface.
+func cmdBaseline(s *store.Store) {
+	requireInit(s)
+
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: statedrift baseline <pin|show|unpin|check> [args]")
+		os.Exit(1)
+	}
+
+	switch os.Args[2] {
+	case "pin":
+		cmdBaselinePin(s)
+	case "show":
+		cmdBaselineShow(s)
+	case "unpin":
+		cmdBaselineUnpin(s)
+	case "check":
+		// Phase K. Placeholder so the surface is discoverable while
+		// the implementation lands; remove this branch once cmdBaselineCheck exists.
+		fatal("baseline check is not yet implemented (lands in Phase K).")
+	default:
+		fmt.Fprintf(os.Stderr, "unknown baseline subcommand: %s\n", os.Args[2])
+		fmt.Fprintln(os.Stderr, "usage: statedrift baseline <pin|show|unpin|check>")
+		os.Exit(1)
+	}
+}
+
+// cmdBaselinePin resolves a snapshot ref and writes it to the baseline
+// file. Refuses to overwrite an existing pin without --force; this is
+// load-bearing for compliance use, where silently replacing the
+// known-good reference would mask drift.
+func cmdBaselinePin(s *store.Store) {
+	if len(os.Args) < 4 {
+		fatal("usage: statedrift baseline pin <ref> [--force]")
+	}
+	ref := os.Args[3]
+
+	force := false
+	for i := 4; i < len(os.Args); i++ {
+		if os.Args[i] == "--force" {
+			force = true
+		}
+	}
+
+	path := baseline.Path(s.BasePath)
+	if baseline.Exists(path) && !force {
+		fatal("a baseline is already pinned at %s.\n  Re-pin with --force, or run 'statedrift baseline unpin --force' first.", path)
+	}
+
+	snap, err := resolveRef(s, ref)
+	if err != nil {
+		fatal("resolving %q: %v", ref, err)
+	}
+
+	pin, err := baseline.New(snap, collector.Version)
+	if err != nil {
+		fatal("preparing baseline: %v", err)
+	}
+
+	if err := baseline.Write(path, pin); err != nil {
+		fatal("writing baseline: %v", err)
+	}
+
+	fmt.Println("✓ Baseline pinned")
+	fmt.Printf("  Hash:        %s\n", pin.SnapshotHash[:16]+"...")
+	fmt.Printf("  Snapshot:    %s\n", snap.Timestamp.Format(time.RFC3339))
+	fmt.Printf("  Pinned at:   %s\n", pin.PinnedAt.Format(time.RFC3339))
+	fmt.Printf("  File:        %s\n", path)
+}
+
+// cmdBaselineShow prints the pin metadata and, with --full, dumps the
+// embedded snapshot via the same JSON-print path used by cmdShow.
+func cmdBaselineShow(s *store.Store) {
+	full := false
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--full" {
+			full = true
+		}
+	}
+
+	path := baseline.Path(s.BasePath)
+	pin, err := baseline.Read(path)
+	if errors.Is(err, baseline.ErrNoBaseline) {
+		fatal("no baseline pinned. Run 'statedrift baseline pin <ref>' first.")
+	}
+	if err != nil {
+		fatal("reading baseline: %v", err)
+	}
+
+	fmt.Println("Baseline:")
+	fmt.Printf("  Hash:           %s\n", pin.SnapshotHash)
+	fmt.Printf("  Snapshot time:  %s\n", pin.Snapshot.Timestamp.Format(time.RFC3339))
+	fmt.Printf("  Pinned at:      %s\n", pin.PinnedAt.Format(time.RFC3339))
+	fmt.Printf("  Pinned by uid:  %d\n", pin.PinnedByUID)
+	fmt.Printf("  Tool version:   %s\n", pin.ToolVersion)
+	fmt.Printf("  File:           %s\n", path)
+
+	if full {
+		fmt.Println()
+		data, err := json.MarshalIndent(pin.Snapshot, "", "  ")
+		if err != nil {
+			fatal("marshaling snapshot: %v", err)
+		}
+		fmt.Println(string(data))
+	}
+}
+
+// cmdBaselineUnpin removes the baseline file. Requires --force so a
+// fat-finger does not silently delete the operator's compliance
+// reference.
+func cmdBaselineUnpin(s *store.Store) {
+	force := false
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--force" {
+			force = true
+		}
+	}
+	if !force {
+		fatal("baseline unpin is destructive — re-run with --force to confirm.")
+	}
+
+	path := baseline.Path(s.BasePath)
+	if err := baseline.Remove(path); err != nil {
+		if errors.Is(err, baseline.ErrNoBaseline) {
+			fatal("no baseline pinned at %s — nothing to remove.", path)
+		}
+		fatal("removing baseline: %v", err)
+	}
+
+	fmt.Printf("✓ Baseline removed (%s)\n", path)
 }
 
 func cmdGC(s *store.Store) {
