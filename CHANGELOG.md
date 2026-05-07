@@ -27,12 +27,32 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
   AND new ≥ 2× old + 1. Tuned to catch sudden growth (fork bombs, leaks)
   without flagging steady-state JVM workloads. Medium severity.
 - Snapshots gain `schema_version: "0.4"`. v0.3 readers ignore the field.
+- **Phases G+H — export-time redaction.** `statedrift export` accepts
+  `--redact-network` and `--redact-hostnames`. Each Category B identifier
+  (per `docs/DESIGN.md` §4.5) is replaced by a deterministic
+  HMAC-SHA256-derived tagged hash (e.g. `ip:e3fe802e89e8`,
+  `host:c80530af83aa`, `user:1e0f9b3c4a2d`). The HMAC key is a 32-byte
+  per-bundle salt stored in `manifest.json`; the redacted bundle is itself
+  a re-chained, internally consistent hash chain, so `verify.sh` and
+  `verify.ps1` work without modification. Same value within a bundle
+  hashes identically (cross-references like `users[].name` →
+  `groups[].members` survive); same value across bundles hashes
+  differently (no cross-bundle fingerprint). The local chain is never
+  redacted — it remains forensic ground truth.
+- `manifest.json` gains an optional `redaction` block with `mode`, `salt`
+  (hex), and `tool_version` when redaction is applied. Manifest's
+  `hostname` field is also redacted under `--redact-hostnames`. See
+  `docs/DESIGN.md` §4.6 for the full trust model and deliberate
+  non-coverage list (PIDs, process binary names).
 
 ### Changed
 
 - `diffProcesses` now takes a `wallSec` parameter computed from the two
   snapshots' `Timestamp` fields. Internal API; no impact on the snapshot
   schema or CLI.
+- `internal/export.Bundle` gains a sibling `BundleWith(s, from, to, out,
+  opts)` that accepts `BundleOptions{Redaction: redact.Options}`. The
+  existing `Bundle` is preserved as a thin shim — no breaking change.
 
 ---
 
