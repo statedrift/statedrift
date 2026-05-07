@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/statedrift/statedrift/internal/baseline"
 	"github.com/statedrift/statedrift/internal/collector"
 	"github.com/statedrift/statedrift/internal/config"
 	"github.com/statedrift/statedrift/internal/daemon"
@@ -105,6 +106,8 @@ func main() {
 		cmdWatch(s, cfg)
 	case "analyze":
 		cmdAnalyze(s, cfg)
+	case "baseline":
+		cmdBaseline(s)
 	case "version":
 		fmt.Printf("statedrift %s (built %s)\n", collector.Version, collector.BuildDate)
 	case "help", "--help", "-h":
@@ -137,6 +140,7 @@ Commands:
   daemon       Run continuous snapshot collection
   watch        Continuously snap and alert on material changes
   analyze      Evaluate anomaly rules against latest diff  [free/Pro]
+  baseline     Pin a known-good snapshot and check current state against it
   gc           Remove snapshots older than retention_days
   version      Print version info
   help <cmd>   Show detailed help for a command
@@ -166,6 +170,7 @@ Examples:
   sudo statedrift daemon --install
   sudo statedrift watch --interval 5m --webhook https://hooks.slack.com/...
   statedrift analyze
+  sudo statedrift baseline pin HEAD && statedrift baseline check
   statedrift help diff
 
 Build: ` + collector.Version + ` (` + collector.BuildDate + `)`)
@@ -427,6 +432,47 @@ Examples:
   statedrift analyze HEAD~3
   statedrift analyze --rules /etc/statedrift/rules.json
   statedrift analyze --json | jq '.[] | select(.rule.severity=="critical")'`,
+
+		"baseline": `statedrift baseline — Pin a known-good snapshot and check current state against it
+
+Usage:
+  statedrift baseline pin <ref> [--force]
+  statedrift baseline show [--full]
+  statedrift baseline check [ref] [--include-counters] [--quiet] [--json] [--no-color]
+  statedrift baseline unpin --force
+
+Subcommands:
+  pin <ref>      Pin the snapshot at <ref> (HEAD, HEAD~N, hash prefix).
+                 Refuses to overwrite an existing pin without --force.
+  show           Print pin metadata. --full also dumps the embedded snapshot.
+  check [ref]    Diff the pinned baseline against ref (default HEAD).
+                 Exit 0 if zero MATERIAL changes, 1 otherwise. Counter
+                 deltas never affect the exit code.
+  unpin          Remove the pinned baseline. Requires --force.
+
+check flags:
+  --include-counters   Show counter rows in the output. Does not affect exit code.
+  --quiet              Suppress all output; the exit code is the only signal.
+  --json               Emit a structured diff (baseline_hash, target_timestamp,
+                       material/counter counts, changes).
+  --no-color           Disable ANSI colors.
+
+The pinned baseline lives at <store>/baseline.json. It is NOT part of the
+hash chain — pinning does not append, does not bump head, does not interact
+with verify. Survives chain GC (the snapshot is copied verbatim into the
+file).
+
+Scope is strictly compliance ("different from approved state?"). Conditional
+expectations (time of day, system load) are out of scope by design — see
+docs/V04_BASELINE_PLAN.md for the v0.5+ rules-based plan.
+
+Examples:
+  sudo statedrift baseline pin HEAD
+  statedrift baseline show
+  statedrift baseline check
+  statedrift baseline check --quiet || echo "drift detected"
+  statedrift baseline check --json | jq .changes
+  sudo statedrift baseline unpin --force`,
 
 		"version": `statedrift version — Print version information
 
@@ -1291,6 +1337,252 @@ func daemonSnap(s *store.Store, cfg *config.Config) {
 		return
 	}
 	fmt.Printf("[%s] ✓ hash: %s\n", tf.RFC3339(snap.Timestamp), hash[:16]+"...")
+}
+
+// cmdBaseline dispatches the `statedrift baseline <subcommand>` family.
+// `check` will land in Phase K; this dispatcher accepts it now and emits
+// a placeholder so users see a consistent surface.
+func cmdBaseline(s *store.Store) {
+	requireInit(s)
+
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: statedrift baseline <pin|show|unpin|check> [args]")
+		os.Exit(1)
+	}
+
+	switch os.Args[2] {
+	case "pin":
+		cmdBaselinePin(s)
+	case "show":
+		cmdBaselineShow(s)
+	case "unpin":
+		cmdBaselineUnpin(s)
+	case "check":
+		cmdBaselineCheck(s)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown baseline subcommand: %s\n", os.Args[2])
+		fmt.Fprintln(os.Stderr, "usage: statedrift baseline <pin|show|unpin|check>")
+		os.Exit(1)
+	}
+}
+
+// cmdBaselinePin resolves a snapshot ref and writes it to the baseline
+// file. Refuses to overwrite an existing pin without --force; this is
+// load-bearing for compliance use, where silently replacing the
+// known-good reference would mask drift.
+func cmdBaselinePin(s *store.Store) {
+	if len(os.Args) < 4 {
+		fatal("usage: statedrift baseline pin <ref> [--force]")
+	}
+	ref := os.Args[3]
+
+	force := false
+	for i := 4; i < len(os.Args); i++ {
+		if os.Args[i] == "--force" {
+			force = true
+		}
+	}
+
+	path := baseline.Path(s.BasePath)
+	if baseline.Exists(path) && !force {
+		fatal("a baseline is already pinned at %s.\n  Re-pin with --force, or run 'statedrift baseline unpin --force' first.", path)
+	}
+
+	snap, err := resolveRef(s, ref)
+	if err != nil {
+		fatal("resolving %q: %v", ref, err)
+	}
+
+	pin, err := baseline.New(snap, collector.Version)
+	if err != nil {
+		fatal("preparing baseline: %v", err)
+	}
+
+	if err := baseline.Write(path, pin); err != nil {
+		fatal("writing baseline: %v", err)
+	}
+
+	fmt.Println("✓ Baseline pinned")
+	fmt.Printf("  Hash:        %s\n", pin.SnapshotHash[:16]+"...")
+	fmt.Printf("  Snapshot:    %s\n", snap.Timestamp.Format(time.RFC3339))
+	fmt.Printf("  Pinned at:   %s\n", pin.PinnedAt.Format(time.RFC3339))
+	fmt.Printf("  File:        %s\n", path)
+}
+
+// cmdBaselineShow prints the pin metadata and, with --full, dumps the
+// embedded snapshot via the same JSON-print path used by cmdShow.
+func cmdBaselineShow(s *store.Store) {
+	full := false
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--full" {
+			full = true
+		}
+	}
+
+	path := baseline.Path(s.BasePath)
+	pin, err := baseline.Read(path)
+	if errors.Is(err, baseline.ErrNoBaseline) {
+		fatal("no baseline pinned. Run 'statedrift baseline pin <ref>' first.")
+	}
+	if err != nil {
+		fatal("reading baseline: %v", err)
+	}
+
+	fmt.Println("Baseline:")
+	fmt.Printf("  Hash:           %s\n", pin.SnapshotHash)
+	fmt.Printf("  Snapshot time:  %s\n", pin.Snapshot.Timestamp.Format(time.RFC3339))
+	fmt.Printf("  Pinned at:      %s\n", pin.PinnedAt.Format(time.RFC3339))
+	fmt.Printf("  Pinned by uid:  %d\n", pin.PinnedByUID)
+	fmt.Printf("  Tool version:   %s\n", pin.ToolVersion)
+	fmt.Printf("  File:           %s\n", path)
+
+	if full {
+		fmt.Println()
+		data, err := json.MarshalIndent(pin.Snapshot, "", "  ")
+		if err != nil {
+			fatal("marshaling snapshot: %v", err)
+		}
+		fmt.Println(string(data))
+	}
+}
+
+// cmdBaselineUnpin removes the baseline file. Requires --force so a
+// fat-finger does not silently delete the operator's compliance
+// reference.
+func cmdBaselineUnpin(s *store.Store) {
+	force := false
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--force" {
+			force = true
+		}
+	}
+	if !force {
+		fatal("baseline unpin is destructive — re-run with --force to confirm.")
+	}
+
+	path := baseline.Path(s.BasePath)
+	if err := baseline.Remove(path); err != nil {
+		if errors.Is(err, baseline.ErrNoBaseline) {
+			fatal("no baseline pinned at %s — nothing to remove.", path)
+		}
+		fatal("removing baseline: %v", err)
+	}
+
+	fmt.Printf("✓ Baseline removed (%s)\n", path)
+}
+
+// cmdBaselineCheck diffs the pinned baseline against a target snapshot
+// (default HEAD) and exits with code 0 if zero MATERIAL changes are
+// found, 1 otherwise. Counter-only deltas (kernel ticks, packet
+// counters) never affect the exit code — they are operational noise,
+// not compliance drift.
+//
+// Flags:
+//
+//	--include-counters  Also display counter rows in the human/JSON
+//	                    output. Does NOT affect the exit code.
+//	--material-only     Default behavior; accepted for symmetry with
+//	                    `statedrift diff`.
+//	--quiet             Suppress all output; the exit code is the only
+//	                    signal. CI-friendly.
+//	--json              Emit a structured JSON diff. The output bundles
+//	                    the baseline hash, target snapshot timestamp,
+//	                    material/counter counts, and the change list
+//	                    (filtered per --include-counters).
+func cmdBaselineCheck(s *store.Store) {
+	ref := "HEAD"
+	includeCounters := false
+	quiet := false
+	jsonOut := false
+
+	args := os.Args[3:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--include-counters":
+			includeCounters = true
+		case "--material-only":
+			// Default; accepted for symmetry with `diff`.
+		case "--quiet":
+			quiet = true
+		case "--json":
+			jsonOut = true
+		case "--no-color":
+			// Honored implicitly via isTerminal()/NO_COLOR; accept the
+			// flag for symmetry.
+		default:
+			if !strings.HasPrefix(args[i], "--") {
+				ref = args[i]
+			}
+		}
+	}
+
+	pin, err := baseline.Read(baseline.Path(s.BasePath))
+	if errors.Is(err, baseline.ErrNoBaseline) {
+		fatal("no baseline pinned. Run 'statedrift baseline pin <ref>' first.")
+	}
+	if err != nil {
+		fatal("reading baseline: %v", err)
+	}
+
+	target, err := resolveRef(s, ref)
+	if err != nil {
+		fatal("resolving %q: %v", ref, err)
+	}
+
+	result := diff.Compare(pin.Snapshot, target)
+
+	materialOnlyDisplay := !includeCounters
+
+	if jsonOut {
+		// Filter the change list for display, but preserve the totals
+		// so a consumer can still see "N counter changes were
+		// suppressed" without having to recompute.
+		displayChanges := result.Changes
+		if materialOnlyDisplay {
+			filtered := make([]diff.Change, 0, len(result.Changes))
+			for _, c := range result.Changes {
+				if !c.Counter {
+					filtered = append(filtered, c)
+				}
+			}
+			displayChanges = filtered
+		}
+		out := struct {
+			BaselineHash      string        `json:"baseline_hash"`
+			BaselineTimestamp time.Time     `json:"baseline_timestamp"`
+			TargetTimestamp   time.Time     `json:"target_timestamp"`
+			Material          int           `json:"material"`
+			Counters          int           `json:"counters"`
+			Changes           []diff.Change `json:"changes"`
+		}{
+			BaselineHash:      pin.SnapshotHash,
+			BaselineTimestamp: pin.Snapshot.Timestamp,
+			TargetTimestamp:   target.Timestamp,
+			Material:          result.Material,
+			Counters:          result.Counters,
+			Changes:           displayChanges,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(out); err != nil {
+			fatal("encoding JSON: %v", err)
+		}
+	} else if !quiet {
+		fmt.Printf("Comparing baseline (%s) → %s\n",
+			pin.Snapshot.Timestamp.Format(time.RFC3339),
+			target.Timestamp.Format(time.RFC3339),
+		)
+		if result.Material == 0 && result.Counters == 0 {
+			fmt.Println("\n✓ No drift from baseline.")
+		} else {
+			fmt.Println()
+			fmt.Print(diff.Format(result, materialOnlyDisplay, isTerminal()))
+		}
+	}
+
+	if result.Material > 0 {
+		os.Exit(1)
+	}
 }
 
 func cmdGC(s *store.Store) {
