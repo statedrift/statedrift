@@ -572,6 +572,7 @@ explicitly in `docs/SECURITY.md`.
 ```
 /var/lib/statedrift/                # default; configurable
 ├── head                            # 64-hex SHA-256 of latest snapshot
+├── baseline.json                   # optional; pinned compliance reference (§6.1)
 ├── chain/
 │   ├── 2026-03-22/                 # one directory per UTC date
 │   │   ├── 140000.json             # snapshot taken at 14:00:00 UTC
@@ -616,6 +617,51 @@ Per-snapshot JSON is typically 50–200 KB depending on host density. At
 one snapshot per hour, a single host produces ~1.5 MB/day, ~550 MB/year.
 `statedrift gc` removes snapshots older than `retention_days` (default
 365) and re-links the chain so `verify` still passes on the survivors.
+
+### 6.1 Baseline (compliance reference)
+
+`baseline.json` is an **optional** sibling of `head` and `chain/` that
+records a single pinned snapshot serving as a compliance reference: the
+operator-attested known-good state. `statedrift baseline check` diffs
+the current (or specified) snapshot against the pin and exits 0 if there
+are zero material changes, 1 otherwise — suitable for CI gates and
+"show me everything that changed since the last audit" workflows.
+
+**The baseline is not part of the hash chain.** Pinning does not append,
+does not bump `head`, and does not interact with `verify`. The chain is
+the forensic ledger; the baseline is a compliance reference. Conflating
+them would mean every pin/unpin modifies the chain — wrong granularity
+for both. `verify` continues to operate purely on `chain/` + `head`;
+`baseline check` operates purely on `baseline.json` + a target snapshot.
+
+**Snapshot is copied, not referenced.** `baseline.json` carries a full
+verbatim copy of the pinned snapshot inside a small wrapper. This way
+the baseline survives `gc` of the chain entry it was pinned from, and
+an auditor can read the file self-contained with `cat baseline.json |
+jq`. The wrapper carries pin metadata (when, by which uid, by which
+tool version) that does not belong on the snapshot itself — folding
+those fields into the snapshot would corrupt the chain hash if the
+wrapped snapshot were ever fed back in. Internal consistency is checked
+on every read by re-hashing the embedded snapshot and comparing to a
+recorded hash; mismatch surfaces as `ErrCorrupt`.
+
+**Single pin, no names.** v0.4 supports one baseline at a time. Named
+baselines (`pin --name pre-deploy`) are a v0.5+ candidate if customers
+ask. Keeping it single now avoids designing a directory layout the
+project may regret.
+
+**Compliance only, not behavioral.** This baseline answers "different
+from approved state?". It does not express expectations conditional on
+time of day, day of week, system load, or business cycle ("stockproc
+should hit 60–90% CPU on weekdays 09:30–09:45 ET"). Behavioral baselines
+have a different storage model (aggregated history, not one ref) and a
+different buyer (SRE, not compliance lead). The agreed v0.5+ shape is to
+extend the rules engine with optional `when` (time predicate) and
+`expected` (range/distribution) clauses — keeping behavioral checks
+inside the rules machinery rather than expanding `baseline`'s surface.
+
+For the full plan and the deferred-behavioral rationale, see
+`docs/V04_BASELINE_PLAN.md`.
 
 ---
 

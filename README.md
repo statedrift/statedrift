@@ -127,6 +127,7 @@ Statedrift is an **evidence tool**, not a monitoring tool. It answers: *"What wa
 ```
 /var/lib/statedrift/
 ├── head                         # SHA-256 of latest snapshot
+├── baseline.json                # Optional pinned compliance reference
 ├── chain/
 │   ├── 2026-03-22/
 │   │   ├── 140000.json          # Snapshot at 14:00:00 UTC
@@ -352,6 +353,42 @@ sudo statedrift gc
 ```
 
 Re-links the hash chain after deletion so `verify` still passes on the remaining snapshots.
+
+---
+
+### `statedrift baseline`
+
+Pin a known-good snapshot as a compliance reference, then `check` later snapshots against it. Suitable for CI gates: pin after a successful release, fail the next CI run if anything material drifts.
+
+```bash
+sudo statedrift baseline pin HEAD                  # pin the latest snapshot
+statedrift baseline show                           # display pin metadata
+statedrift baseline check                          # diff HEAD against pin; exit 1 on drift
+statedrift baseline check --quiet || echo drift   # CI-friendly form
+sudo statedrift baseline unpin --force             # remove the pin
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|---|---|
+| `pin <ref> [--force]` | Pin the snapshot at `<ref>` (`HEAD`, `HEAD~N`, or a hash prefix). Refuses to overwrite an existing pin without `--force`. |
+| `show [--full]` | Print pin metadata (hash, original timestamp, when pinned, by whom). `--full` also dumps the embedded snapshot JSON. |
+| `check [ref] [flags]` | Diff the pinned baseline against `ref` (default `HEAD`). Exit `0` if zero **material** changes, `1` if any. Counter deltas never affect the exit code. |
+| `unpin --force` | Remove the pinned baseline. `--force` is required to prevent a fat-finger from silently deleting the compliance reference. |
+
+**`check` flags:**
+
+| Flag | Description |
+|---|---|
+| `--include-counters` | Show counter rows in the diff output. Does not affect the exit code. |
+| `--quiet` | Suppress all stdout; the exit code is the only signal. |
+| `--json` | Emit a structured diff with baseline hash, target timestamp, material/counter counts, and changes. |
+| `--no-color` | Disable ANSI colors. |
+
+**The baseline is not part of the hash chain.** Pinning does not append a snapshot, does not change `head`, and does not interact with `verify`. The chain is the forensic ledger; `baseline.json` is a separate compliance reference at `<store>/baseline.json`.
+
+**Compliance only, not behavioral.** This baseline answers "different from approved state?". Conditional expectations ("stockproc should hit 60–90% CPU on weekdays 09:30–09:45 ET") are deliberately out of scope — see `docs/V04_BASELINE_PLAN.md` for the v0.5+ rules-based plan.
 
 ---
 

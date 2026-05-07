@@ -44,6 +44,22 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
   `hostname` field is also redacted under `--redact-hostnames`. See
   `docs/DESIGN.md` §4.6 for the full trust model and deliberate
   non-coverage list (PIDs, process binary names).
+- **Phases J+K+L — `statedrift baseline`.** New top-level command for
+  compliance-grade drift detection: pin a known-good snapshot, then
+  `check` later snapshots against it and gate CI on the exit code.
+  Subcommands: `baseline pin <ref> [--force]`, `baseline show
+  [--full]`, `baseline unpin --force`, `baseline check [ref]
+  [--include-counters] [--quiet] [--json] [--no-color]`. The pinned
+  snapshot is copied verbatim to `<store>/baseline.json` (a small
+  wrapper carries pin metadata) — survives chain GC, no chain-side
+  bookkeeping. **Baseline is not part of the hash chain**: pinning does
+  not append, does not bump `head`, does not interact with `verify`.
+  `check` exits 0 if zero **material** changes, 1 otherwise; counter
+  deltas never affect the exit code. Scope is strictly compliance:
+  no time/load/cycle conditions (those are deferred to v0.5+ via
+  `when`/`expected` clauses on rules). See `docs/V04_BASELINE_PLAN.md`
+  for the full plan and `docs/DESIGN.md` §6.1 for the architecture
+  rationale.
 
 ### Changed
 
