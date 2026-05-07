@@ -3,6 +3,7 @@ package diff
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/statedrift/statedrift/internal/collector"
 )
@@ -350,6 +351,186 @@ func TestDiffProcessesAdded(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected processes added change for PID 999")
+	}
+}
+
+// --- v0.4 Phase F: R26/R27/R28, PID reuse, CPU% ---
+
+func TestDiffProcessesPPIDChangeFiresR26(t *testing.T) {
+	old := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, PPID: 50, Comm: "child", State: "S", StartTicks: 1000},
+		}},
+	}
+	new := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, PPID: 1, Comm: "child", State: "S", StartTicks: 1000},
+		}},
+	}
+	r := Compare(old, new)
+	found := false
+	for _, c := range r.Changes {
+		if c.Section == "processes" && c.Type == "modified" && strings.HasSuffix(c.Key, ".ppid") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected processes .ppid change when parent changes (R26)")
+	}
+}
+
+func TestDiffProcessesZombieTransitionFiresR27(t *testing.T) {
+	old := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "myapp", State: "S", StartTicks: 1000},
+		}},
+	}
+	new := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "myapp", State: "Z", StartTicks: 1000},
+		}},
+	}
+	r := Compare(old, new)
+	found := false
+	for _, c := range r.Changes {
+		if c.Section == "processes" && c.Type == "modified" && strings.HasSuffix(c.Key, ".zombie") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected processes .zombie change on transition into Z (R27)")
+	}
+}
+
+func TestDiffProcessesAlreadyZombieDoesNotFireR27(t *testing.T) {
+	// Process was already a zombie — don't re-fire just because it's still Z.
+	old := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "myapp", State: "Z", StartTicks: 1000},
+		}},
+	}
+	new := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "myapp", State: "Z", StartTicks: 1000},
+		}},
+	}
+	r := Compare(old, new)
+	for _, c := range r.Changes {
+		if strings.HasSuffix(c.Key, ".zombie") {
+			t.Errorf("did not expect .zombie change when state was already Z; got %+v", c)
+		}
+	}
+}
+
+func TestDiffProcessesThreadExplosionFiresR28(t *testing.T) {
+	// Thread bomb 1 → 500: must fire.
+	old := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "bomb", State: "S", Threads: 1, StartTicks: 1000},
+		}},
+	}
+	new := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "bomb", State: "S", Threads: 500, StartTicks: 1000},
+		}},
+	}
+	r := Compare(old, new)
+	found := false
+	for _, c := range r.Changes {
+		if c.Section == "processes" && c.Type == "modified" && strings.HasSuffix(c.Key, ".thread_explosion") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected .thread_explosion change for 1→500 thread growth (R28)")
+	}
+}
+
+func TestDiffProcessesJVMSteadyStateDoesNotFireR28(t *testing.T) {
+	// JVM at 200 → 220: small delta, must NOT fire. Tunes the threshold.
+	old := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "java", State: "S", Threads: 200, StartTicks: 1000},
+		}},
+	}
+	new := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "java", State: "S", Threads: 220, StartTicks: 1000},
+		}},
+	}
+	r := Compare(old, new)
+	for _, c := range r.Changes {
+		if strings.HasSuffix(c.Key, ".thread_explosion") {
+			t.Errorf("did not expect .thread_explosion for 200→220 JVM growth; got %+v", c)
+		}
+	}
+}
+
+func TestDiffProcessesPIDReuseEmitsRemovedAndAdded(t *testing.T) {
+	// Same PID, different StartTicks → original exited, new process took the
+	// slot. Should emit removed+added, NOT modified (no spurious R26/R27).
+	old := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, PPID: 1, Comm: "old_proc", State: "S", StartTicks: 1000},
+		}},
+	}
+	new := &collector.Snapshot{
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, PPID: 50, Comm: "new_proc", State: "Z", StartTicks: 9999}, // different start
+		}},
+	}
+	r := Compare(old, new)
+	var removed, added bool
+	for _, c := range r.Changes {
+		if c.Section != "processes" {
+			continue
+		}
+		if c.Type == "removed" && strings.Contains(c.Key, "100") {
+			removed = true
+		}
+		if c.Type == "added" && strings.Contains(c.Key, "100") {
+			added = true
+		}
+		// PPID change and zombie transition must NOT fire on PID reuse.
+		if strings.HasSuffix(c.Key, ".ppid") || strings.HasSuffix(c.Key, ".zombie") {
+			t.Errorf("PID reuse should not emit %q; got %+v", c.Key, c)
+		}
+	}
+	if !removed || !added {
+		t.Errorf("expected removed+added for PID reuse, got removed=%v added=%v", removed, added)
+	}
+}
+
+func TestDiffProcessesCPUPctComputed(t *testing.T) {
+	// 1000 ticks (10s of CPU at 100 Hz) over 20s wall = 50% CPU.
+	t0 := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	old := &collector.Snapshot{
+		Timestamp: t0,
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "burner", State: "R", StartTicks: 1, UTimeTicks: 0, STimeTicks: 0},
+		}},
+	}
+	new := &collector.Snapshot{
+		Timestamp: t0.Add(20 * time.Second),
+		Processes: &collector.ProcessInventory{TotalCount: 1, TopByRSS: []collector.Process{
+			{PID: 100, Comm: "burner", State: "R", StartTicks: 1, UTimeTicks: 700, STimeTicks: 300},
+		}},
+	}
+	r := Compare(old, new)
+	found := false
+	for _, c := range r.Changes {
+		if strings.HasSuffix(c.Key, ".cpu_pct") {
+			found = true
+			if c.NewValue != "50.0" {
+				t.Errorf("cpu_pct = %q, want 50.0", c.NewValue)
+			}
+			if !c.Counter {
+				t.Error("cpu_pct should be a counter change, not material")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected .cpu_pct change when ticks and wallclock are populated")
 	}
 }
 

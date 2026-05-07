@@ -325,6 +325,34 @@ func DefaultRules() []Rule {
 			Section:     "mounts",
 			ChangeType:  "modified",
 		},
+		// v0.4 Phase F — process forensics
+		{
+			ID:          "R26_PROCESS_REPARENTED",
+			Name:        "Process reparented",
+			Description: "A long-running process changed parents between snapshots. Reparenting to PID 1 is normal after the original parent exits, but unexpected reparenting on a service process can indicate a parent crash, daemon restart, or PR_SET_CHILD_SUBREAPER manipulation.",
+			Severity:    SeverityMedium,
+			Section:     "processes",
+			ChangeType:  "modified",
+			KeyPattern:  "*.ppid",
+		},
+		{
+			ID:          "R27_PROCESS_ZOMBIE",
+			Name:        "Process became zombie",
+			Description: "A process transitioned into the zombie (Z) state — it exited but its parent has not reaped it. Persistent zombies indicate a parent process that is buggy or hung.",
+			Severity:    SeverityLow,
+			Section:     "processes",
+			ChangeType:  "modified",
+			KeyPattern:  "*.zombie",
+		},
+		{
+			ID:          "R28_PROCESS_THREAD_EXPLOSION",
+			Name:        "Process thread explosion",
+			Description: "A process spawned a large number of threads in one collection interval (delta ≥ 100 and new ≥ 2× old). Tuned to catch sudden growth (e.g. fork bombs, thread leaks), not normal high-thread workloads like JVMs.",
+			Severity:    SeverityMedium,
+			Section:     "processes",
+			ChangeType:  "modified",
+			KeyPattern:  "*.thread_explosion",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",

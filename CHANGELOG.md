@@ -7,6 +7,35 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
+## [0.4.0] — Unreleased
+
+### Added
+
+- **Phase F — process forensics.** `Process` struct gains `Threads`,
+  `UTimeTicks`, `STimeTicks`, `StartTicks` fields. Tick fields are read from
+  `/proc/[pid]/stat`; `Threads` from `/proc/[pid]/status`. CPU% is derived
+  at diff time from cumulative-tick delta over wall-clock delta (assumes
+  `CLK_TCK = 100`, the Linux default on x86_64/arm64). PID reuse is
+  detected via `StartTicks`: same PID with different start time is reported
+  as removed+added rather than modified, suppressing spurious R26/R27.
+- **R26_PROCESS_REPARENTED** — fires when a process's PPID changes between
+  snapshots. Medium severity.
+- **R27_PROCESS_ZOMBIE** — fires when a process transitions into the
+  zombie (Z) state. Low severity. Does not re-fire while the process
+  remains a zombie.
+- **R28_PROCESS_THREAD_EXPLOSION** — fires when thread count grows by ≥ 100
+  AND new ≥ 2× old + 1. Tuned to catch sudden growth (fork bombs, leaks)
+  without flagging steady-state JVM workloads. Medium severity.
+- Snapshots gain `schema_version: "0.4"`. v0.3 readers ignore the field.
+
+### Changed
+
+- `diffProcesses` now takes a `wallSec` parameter computed from the two
+  snapshots' `Timestamp` fields. Internal API; no impact on the snapshot
+  schema or CLI.
+
+---
+
 ## [0.3.0] — 2026-05-04
 
 Free-tier value bump: five new always-on security-signal collectors, 12 new
