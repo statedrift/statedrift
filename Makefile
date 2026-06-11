@@ -1,4 +1,4 @@
-.PHONY: build build-all clean test vet install release docker \
+.PHONY: build build-all clean test test-timing vet install release docker \
         test-docker test-docker-v02 test-docker-all test-integration
 
 BINARY  := statedrift
@@ -29,6 +29,23 @@ build-all:
 
 test:
 	go test ./...
+
+# Report where test wall-time goes: the slowest individual tests, then the
+# per-package totals. Keeps local test time honest — on a host with many
+# packages/services the cmd CLI tests dominate, because each runs the real
+# binary through a full `snap` that shells out to rpm/systemctl. CI sees a
+# fraction of this (minimal container, little to collect). Single test run;
+# results are not cached (-count=1).
+test-timing:
+	@tmp=$$(mktemp); \
+	go test ./... -count=1 -v 2>&1 | tee $$tmp | grep -E '^(ok|FAIL|---)[[:space:]]' >/dev/null; \
+	echo "Slowest 20 tests:"; \
+	awk '/^--- (PASS|FAIL):/ {d=$$4; gsub(/[()s]/,"",d); printf "  %7.2fs  %s\n", d, $$3}' $$tmp \
+		| sort -rn | head -20; \
+	echo; \
+	echo "Per-package totals:"; \
+	grep -E '^(ok|FAIL|---  FAIL)[[:space:]]' $$tmp | sed 's/^/  /'; \
+	rm -f $$tmp
 
 vet:
 	go vet ./...
