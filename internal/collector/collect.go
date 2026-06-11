@@ -211,6 +211,15 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	// v0.4 Phase N — firewall ruleset identity (iptables/nftables hash).
+	if captures(cfg, "firewall") {
+		snap.Firewall, err = collectFirewall()
+		if err != nil {
+			snap.Firewall = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("firewall: %v", err))
+		}
+	}
+
 	// Optional collectors — only run when enabled in config.
 	if cfg.Collectors.IsEnabled("cpu") {
 		snap.CPU, err = collectCPU()
@@ -430,6 +439,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.MAC = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("mac: %v", err))
+		}
+	}
+
+	if due["firewall"] && captures(cfg, "firewall") {
+		snap.Firewall, err = collectFirewall()
+		if err != nil {
+			snap.Firewall = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("firewall: %v", err))
 		}
 	}
 

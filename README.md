@@ -80,6 +80,7 @@ Every snapshot records:
 | `services` | Systemd unit names and states | `systemctl list-units` |
 | `listening_ports` | TCP sockets in LISTEN state | `/proc/net/tcp` |
 | `mac` | SELinux/AppArmor enforcement mode and policy | `/sys/fs/selinux`, `/sys/kernel/security/apparmor` |
+| `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) | `nft list ruleset`, `iptables-save` |
 
 Each snapshot is SHA-256 hash-chained to the previous one. Modifying any snapshot breaks the chain — and `statedrift verify` catches it.
 
@@ -500,7 +501,7 @@ Yes. Use `--json` flags on `log`, `show`, and `diff` for machine-readable output
 An auditor needs only `sha256sum` and `jq` to run `verify.sh` from an export bundle — no Go toolchain, no statedrift binary required.
 
 **Will statedrift track more than host state?**
-The current release captures host-level infrastructure state — the operational signals that matter most for incident response and compliance. v0.3 expands this with security signals (users, groups, SSH keys, kernel modules, cron, mounts), v0.4 adds process forensics and SELinux/AppArmor enforcement state, and later versions add filesystem diff, fleet baselining, and container runtime state. See [ROADMAP.md](ROADMAP.md) for the full plan, or open an issue to tell us what matters to you.
+The current release captures host-level infrastructure state — the operational signals that matter most for incident response and compliance. v0.3 expands this with security signals (users, groups, SSH keys, kernel modules, cron, mounts), v0.4 adds process forensics, SELinux/AppArmor enforcement state, and firewall ruleset hashing, and later versions add filesystem diff, fleet baselining, and container runtime state. See [ROADMAP.md](ROADMAP.md) for the full plan, or open an issue to tell us what matters to you.
 
 ## Contributing
 

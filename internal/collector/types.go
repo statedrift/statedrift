@@ -44,6 +44,10 @@ type Snapshot struct {
 	// nil on pre-0.4 snapshots and when the "mac" capture section is disabled.
 	MAC *MAC `json:"mac,omitempty"`
 
+	// v0.4 Phase N — firewall ruleset identity (iptables/nftables hash).
+	// nil on pre-0.4 snapshots and when the "firewall" capture section is disabled.
+	Firewall *Firewall `json:"firewall,omitempty"`
+
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
 	KernelCounters *KernelCounters      `json:"kernel_counters,omitempty"`
@@ -247,6 +251,23 @@ type MAC struct {
 	PolicyVersion string `json:"policy_version,omitempty"` // selinux: /sys/fs/selinux/policyvers
 	EnforceCount  int    `json:"enforce_count,omitempty"`  // apparmor: profiles in enforce mode
 	ComplainCount int    `json:"complain_count,omitempty"` // apparmor: profiles in complain mode
+}
+
+// Firewall captures the *identity* of the host's packet-filter ruleset, not
+// its contents. The canonicalized ruleset (volatile packet/byte counters and
+// the iptables-save timestamp stripped) is hashed with SHA-256; only that
+// hash and a rule count are stored.
+//
+// Storing a hash rather than the rules is deliberate: firewall rules embed
+// IPs, CIDRs, and ports — all Category B identifiers. Keeping only the hash
+// keeps them out of the chain entirely, so this section has no Cat B fields
+// and is exempt from export-time redaction. Per-rule structural diffing is a
+// v0.5 concern; v0.4 answers only "did the ruleset change, and was it
+// flushed?".
+type Firewall struct {
+	Backend     string `json:"backend"`                // "nftables" | "iptables" | "none"
+	RulesetHash string `json:"ruleset_hash,omitempty"` // SHA-256 hex of canonicalized ruleset
+	Rules       int    `json:"rules,omitempty"`        // canonical rule-line count (flush signal)
 }
 
 // Mount is a single entry from /proc/self/mountinfo. Options carry the
