@@ -75,6 +75,11 @@ func Compare(old, new *collector.Snapshot) *Result {
 	// v0.3 Phase C.
 	diffSSHKeys(old.SSHKeys, new.SSHKeys, r)
 
+	// v0.4 Phase M — MAC enforcement (SELinux/AppArmor).
+	if old.MAC != nil || new.MAC != nil {
+		diffMAC(old.MAC, new.MAC, r)
+	}
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)
@@ -984,6 +989,124 @@ func diffSSHKeys(old, new []collector.SSHKey, r *Result) {
 				"", fmt.Sprintf("type=%s comment=%q source=%s", nk.Type, nk.Comment, nk.Source), false})
 		}
 	}
+}
+
+// diffMAC compares Mandatory Access Control enforcement state. Beyond the
+// per-field modified changes (for auditor visibility), it emits up to three
+// synthetic keys that drive the declarative rules engine — the same technique
+// diffProcesses uses for ".zombie"/".thread_explosion":
+//
+//   - "enforcement_disabled" (R29): the MAC subsystem went from actively
+//     enforcing/permissive to disabled or absent.
+//   - "mode_degraded" (R30): enforcement weakened without a full disable —
+//     SELinux enforcing→permissive, or AppArmor enforce-profile count dropped.
+//   - "config_drift" (R31): SELinux runtime mode no longer matches the
+//     persisted /etc/selinux/config value (e.g. a live `setenforce`).
+//
+// Synthetic alarms require BOTH snapshots to carry observed MAC state; a nil
+// on either side (section newly added, or simply not collected this tick) is
+// treated as added/removed field changes only, never an alarm.
+func diffMAC(old, new *collector.MAC, r *Result) {
+	if old == nil && new == nil {
+		return
+	}
+	if old == nil {
+		r.Changes = append(r.Changes, Change{"mac", "added", "system",
+			"", new.System, false})
+		return
+	}
+	if new == nil {
+		r.Changes = append(r.Changes, Change{"mac", "removed", "system",
+			old.System, "", false})
+		return
+	}
+
+	// Per-field modified changes for human-readable diff output. None of these
+	// keys match a rule pattern, so they never fire an alarm on their own.
+	if old.System != new.System {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "system",
+			old.System, new.System, false})
+	}
+	if old.Mode != new.Mode {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "mode",
+			old.Mode, new.Mode, false})
+	}
+	if old.ConfigMode != new.ConfigMode {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "config_mode",
+			old.ConfigMode, new.ConfigMode, false})
+	}
+	if old.PolicyType != new.PolicyType {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "policy_type",
+			old.PolicyType, new.PolicyType, false})
+	}
+	if old.PolicyVersion != new.PolicyVersion {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "policy_version",
+			old.PolicyVersion, new.PolicyVersion, false})
+	}
+	if old.EnforceCount != new.EnforceCount {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "enforce_count",
+			fmt.Sprintf("%d", old.EnforceCount), fmt.Sprintf("%d", new.EnforceCount), false})
+	}
+	if old.ComplainCount != new.ComplainCount {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "complain_count",
+			fmt.Sprintf("%d", old.ComplainCount), fmt.Sprintf("%d", new.ComplainCount), false})
+	}
+
+	oldActive := macActive(old)
+	newDisabled := new.System == "none" || new.Mode == "disabled"
+
+	// R29 — active → disabled. The dominant event; suppresses the weaker
+	// mode_degraded signal below.
+	if oldActive && newDisabled {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "enforcement_disabled",
+			macSummary(old), macSummary(new), false})
+	} else {
+		// R30 — degraded but not fully disabled.
+		degraded := false
+		switch {
+		case old.System == "selinux" && new.System == "selinux":
+			degraded = old.Mode == "enforcing" && new.Mode == "permissive"
+		case old.System == "apparmor" && new.System == "apparmor":
+			degraded = new.EnforceCount < old.EnforceCount
+		}
+		if degraded {
+			r.Changes = append(r.Changes, Change{"mac", "modified", "mode_degraded",
+				macSummary(old), macSummary(new), false})
+		}
+	}
+
+	// R31 — SELinux runtime vs persisted config drift. Fire only on the
+	// transition INTO the mismatched state so a standing mismatch doesn't
+	// re-alarm on every snapshot.
+	if macConfigMismatch(new) && !macConfigMismatch(old) {
+		r.Changes = append(r.Changes, Change{"mac", "modified", "config_drift",
+			new.ConfigMode, new.Mode, false})
+	}
+}
+
+// macActive reports whether a MAC system is actively constraining the host
+// (enforcing or permissive), as opposed to disabled or absent.
+func macActive(m *collector.MAC) bool {
+	return m.System != "none" && (m.Mode == "enforcing" || m.Mode == "permissive")
+}
+
+// macConfigMismatch reports whether a SELinux snapshot's runtime mode differs
+// from its persisted /etc/selinux/config value. Requires both fields present.
+func macConfigMismatch(m *collector.MAC) bool {
+	if m.System != "selinux" || m.Mode == "" || m.ConfigMode == "" {
+		return false
+	}
+	return m.Mode != m.ConfigMode
+}
+
+// macSummary renders a compact human-readable description of a MAC state for
+// the OldValue/NewValue of a synthetic change.
+func macSummary(m *collector.MAC) string {
+	if m.System == "apparmor" {
+		return fmt.Sprintf("%s mode=%s enforce=%d complain=%d",
+			m.System, m.Mode, m.EnforceCount, m.ComplainCount)
+	}
+	return fmt.Sprintf("%s mode=%s", m.System, m.Mode)
 }
 
 // diffNICDrivers compares NIC driver and firmware versions.

@@ -353,6 +353,34 @@ func DefaultRules() []Rule {
 			ChangeType:  "modified",
 			KeyPattern:  "*.thread_explosion",
 		},
+		// v0.4 Phase M — MAC enforcement (SELinux/AppArmor)
+		{
+			ID:          "R29_MAC_ENFORCEMENT_DISABLED",
+			Name:        "MAC enforcement disabled",
+			Description: "The host's Mandatory Access Control system (SELinux or AppArmor) went from actively enforcing/permissive to disabled or absent. Disabling MAC removes a major exploit-containment layer and is a common post-compromise hardening rollback (e.g. `setenforce 0`, `SELINUX=disabled`, or unloading AppArmor).",
+			Severity:    SeverityHigh,
+			Section:     "mac",
+			ChangeType:  "modified",
+			KeyPattern:  "enforcement_disabled",
+		},
+		{
+			ID:          "R30_MAC_MODE_DEGRADED",
+			Name:        "MAC enforcement degraded",
+			Description: "MAC enforcement weakened without being fully disabled: SELinux dropped from enforcing to permissive (denials logged but not blocked), or the count of AppArmor profiles in enforce mode decreased. Both leave the system observably less constrained.",
+			Severity:    SeverityHigh,
+			Section:     "mac",
+			ChangeType:  "modified",
+			KeyPattern:  "mode_degraded",
+		},
+		{
+			ID:          "R31_MAC_CONFIG_DRIFT",
+			Name:        "SELinux runtime/config mismatch",
+			Description: "The SELinux runtime mode no longer matches the persisted /etc/selinux/config value — typically a live `setenforce` that was not written to config (will revert on reboot) or a config edit not yet applied. Either way the running state and the documented intent disagree.",
+			Severity:    SeverityMedium,
+			Section:     "mac",
+			ChangeType:  "modified",
+			KeyPattern:  "config_drift",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",

@@ -40,6 +40,10 @@ type Snapshot struct {
 	Timers   []SystemdTimer `json:"systemd_timers,omitempty"`
 	SSHKeys  []SSHKey       `json:"ssh_keys,omitempty"`
 
+	// v0.4 Phase M — Mandatory Access Control enforcement state (SELinux/AppArmor).
+	// nil on pre-0.4 snapshots and when the "mac" capture section is disabled.
+	MAC *MAC `json:"mac,omitempty"`
+
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
 	KernelCounters *KernelCounters      `json:"kernel_counters,omitempty"`
@@ -222,6 +226,27 @@ type Group struct {
 type SudoEntry struct {
 	Source string `json:"source"` // "/etc/sudoers" or "/etc/sudoers.d/<name>"
 	Line   string `json:"line"`
+}
+
+// MAC captures Mandatory Access Control enforcement state — SELinux or
+// AppArmor, whichever the host runs. A host runs at most one, so System is
+// the discriminator and only the relevant sub-fields are populated.
+//
+// SELinux fields (Mode, ConfigMode, PolicyType, PolicyVersion) come from
+// /sys/fs/selinux and /etc/selinux/config. AppArmor is enforced per-profile
+// with no global mode, so its signal is the enforce/complain profile counts;
+// Mode is a roll-up ("enforcing" if any profile is in enforce mode).
+//
+// No field is a Category B identifier (no IPs, hostnames, user names, or
+// paths), so the section is not subject to export-time redaction.
+type MAC struct {
+	System        string `json:"system"`                   // "selinux" | "apparmor" | "none"
+	Mode          string `json:"mode,omitempty"`           // enforcing | permissive | disabled
+	ConfigMode    string `json:"config_mode,omitempty"`    // selinux: /etc/selinux/config SELINUX=
+	PolicyType    string `json:"policy_type,omitempty"`    // selinux: SELINUXTYPE=
+	PolicyVersion string `json:"policy_version,omitempty"` // selinux: /sys/fs/selinux/policyvers
+	EnforceCount  int    `json:"enforce_count,omitempty"`  // apparmor: profiles in enforce mode
+	ComplainCount int    `json:"complain_count,omitempty"` // apparmor: profiles in complain mode
 }
 
 // Mount is a single entry from /proc/self/mountinfo. Options carry the

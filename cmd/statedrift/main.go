@@ -1734,10 +1734,19 @@ func checkStoreWritable(s *store.Store) error {
 }
 
 // allWatchSections is the ordered list of every section name tracked by the
-// per-section scheduler. Order is cosmetic (startup banner only).
+// per-section scheduler. A section absent from this list is never marked due
+// in the watch loop, so CollectPartial carries it forward verbatim — meaning
+// watch would never detect drift in it. Every collectable section that
+// CollectPartial knows how to refresh must therefore appear here. Order is
+// cosmetic (startup banner only).
 var allWatchSections = []string{
 	"host", "network", "kernel_params", "packages", "services",
 	"listening_ports", "multicast",
+	// v0.3 security signals + v0.4 MAC — always-on, capture-gated. These are
+	// cheap reads and exactly the drift a tamper-evident tool must catch
+	// in near-real-time (new sudoers entry, new user, `setenforce 0`).
+	"users", "groups", "sudoers", "mounts", "modules",
+	"cron", "timers", "ssh_keys", "mac",
 	"cpu", "kernel_counters", "processes", "sockets", "nic_drivers", "connections",
 }
 

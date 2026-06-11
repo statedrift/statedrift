@@ -60,6 +60,36 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
   `when`/`expected` clauses on rules). See `docs/V04_BASELINE_PLAN.md`
   for the full plan and `docs/DESIGN.md` §6.1 for the architecture
   rationale.
+- **Phase M — MAC enforcement state (SELinux/AppArmor).** New always-on
+  `mac` capture section records the host's Mandatory Access Control state.
+  SELinux: runtime mode (`/sys/fs/selinux/enforce`), persisted config mode
+  and policy type (`/etc/selinux/config`), and policy version. AppArmor:
+  enforce/complain profile counts (`/sys/kernel/security/apparmor/profiles`)
+  with a rolled-up mode. Detection precedence is SELinux → AppArmor → none;
+  all reads are from `/sys` and `/etc` with no external commands. The
+  section carries no Category B identifiers, so it is exempt from
+  export-time redaction. See `docs/V04_MAC_PLAN.md`.
+- **R29_MAC_ENFORCEMENT_DISABLED** — fires when MAC goes from actively
+  enforcing/permissive to disabled or absent. High severity.
+- **R30_MAC_MODE_DEGRADED** — fires when enforcement weakens without a full
+  disable: SELinux enforcing→permissive, or AppArmor enforce-profile count
+  drops. High severity.
+- **R31_MAC_CONFIG_DRIFT** — fires when the SELinux runtime mode no longer
+  matches the persisted `/etc/selinux/config` value (e.g. a live
+  `setenforce` not written to config). Fires only on transition into the
+  mismatched state. Medium severity.
+
+### Fixed
+
+- **`watch` now monitors security signals.** The per-section scheduler
+  (`allWatchSections`) previously omitted every v0.3 security signal
+  (`users`, `groups`, `sudoers`, `mounts`, `modules`, `cron`, `timers`,
+  `ssh_keys`), so `statedrift watch` collected them only on the first tick
+  and then carried them forward verbatim — drift in those sections (a new
+  sudoers entry, a new user, a kernel module load) went undetected until a
+  full `snap`/`daemon` collect. All of them, plus the new `mac` section, are
+  now scheduled and re-collected at their configured interval. `daemon` was
+  unaffected (it always does a full collect).
 
 ### Changed
 

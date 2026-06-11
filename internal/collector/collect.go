@@ -202,6 +202,15 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	// v0.4 Phase M — MAC enforcement state (SELinux/AppArmor).
+	if captures(cfg, "mac") {
+		snap.MAC, err = collectMAC()
+		if err != nil {
+			snap.MAC = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("mac: %v", err))
+		}
+	}
+
 	// Optional collectors — only run when enabled in config.
 	if cfg.Collectors.IsEnabled("cpu") {
 		snap.CPU, err = collectCPU()
@@ -413,6 +422,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.SSHKeys = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("ssh_keys: %v", err))
+		}
+	}
+
+	if due["mac"] && captures(cfg, "mac") {
+		snap.MAC, err = collectMAC()
+		if err != nil {
+			snap.MAC = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("mac: %v", err))
 		}
 	}
 
