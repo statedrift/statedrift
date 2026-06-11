@@ -251,6 +251,7 @@ which keeps cross-version chains valid for the lifetime of the project.
 | **cron_jobs** (v0.3) | `/etc/crontab`, `/etc/cron.d/*`, `/var/spool/cron/*` | Cron runs arbitrary commands as root |
 | **systemd_timers** (v0.3) | `/etc/systemd/system/*.timer`, `/usr/lib/systemd/system/*.timer` | Same as cron, different mechanism |
 | **mounts** (v0.3) | `/proc/self/mountinfo` | Mount adds, `ro→rw` flips, dropped `nosuid`/`nodev`/`noexec` |
+| **mac** (v0.4) | `/sys/fs/selinux`, `/etc/selinux/config`, `/sys/kernel/security/apparmor` | MAC disable/downgrade removes an exploit-containment layer; runtime-vs-config drift |
 
 ### 4.3 What is deliberately not captured
 
@@ -352,6 +353,7 @@ only when an audit bundle leaves the operator's premises.
 | `mounts` | `mount_point` | Local filesystem layout | (not Cat B) |
 | `processes` (optional) | `comm` | Process binary name | (not covered) |
 | `services` | unit names | Unit names can leak deployment topology | (not covered) |
+| `mac` (v0.4) | all fields | Enforcement mode, policy type name, profile counts — no IPs/hostnames/users/paths | (no Cat B — exempt) |
 
 Operators preparing to send an audit bundle externally should treat the
 above as the surface to review. v0.4 ships `statedrift export

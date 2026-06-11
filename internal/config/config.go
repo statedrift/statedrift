@@ -79,7 +79,7 @@ func Default() *Config {
 			"host", "network", "kernel_params",
 			"packages", "services", "listening_ports", "multicast",
 			"users", "groups", "sudoers", "mounts", "modules",
-			"cron", "timers", "ssh_keys",
+			"cron", "timers", "ssh_keys", "mac",
 		},
 		DisplayTZ: "UTC",
 	}
@@ -151,7 +151,7 @@ var knownCaptureSections = map[string]bool{
 	"host": true, "network": true, "kernel_params": true,
 	"packages": true, "services": true, "listening_ports": true, "multicast": true,
 	"users": true, "groups": true, "sudoers": true, "mounts": true, "modules": true,
-	"cron": true, "timers": true, "ssh_keys": true,
+	"cron": true, "timers": true, "ssh_keys": true, "mac": true,
 }
 
 // knownSectionNames is the set of valid keys for section_intervals.
@@ -160,7 +160,7 @@ var knownSectionNames = map[string]bool{
 	"host": true, "network": true, "kernel_params": true,
 	"packages": true, "services": true, "listening_ports": true, "multicast": true,
 	"users": true, "groups": true, "sudoers": true, "mounts": true, "modules": true,
-	"cron": true, "timers": true, "ssh_keys": true,
+	"cron": true, "timers": true, "ssh_keys": true, "mac": true,
 	"cpu": true, "kernel_counters": true, "processes": true,
 	"sockets": true, "nic_drivers": true, "connections": true,
 }
