@@ -80,6 +80,11 @@ func Compare(old, new *collector.Snapshot) *Result {
 		diffMAC(old.MAC, new.MAC, r)
 	}
 
+	// v0.4 Phase N — firewall ruleset identity.
+	if old.Firewall != nil || new.Firewall != nil {
+		diffFirewall(old.Firewall, new.Firewall, r)
+	}
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)
@@ -1107,6 +1112,67 @@ func macSummary(m *collector.MAC) string {
 			m.System, m.Mode, m.EnforceCount, m.ComplainCount)
 	}
 	return fmt.Sprintf("%s mode=%s", m.System, m.Mode)
+}
+
+// firewallFlushThreshold is the minimum prior rule count for a drop-to-zero
+// to be treated as a flush (R33). Below it, a transient empty ruleset isn't a
+// meaningful "flush a populated firewall" event.
+const firewallFlushThreshold = 5
+
+// diffFirewall compares firewall ruleset identity. Beyond per-field modified
+// changes (backend, ruleset_hash, rules) it emits up to one synthetic rule
+// key, mirroring diffMAC:
+//
+//   - "flushed" (R33): the ruleset went from populated (≥ firewallFlushThreshold
+//     rules) to zero while the firewall engine is still present — i.e.
+//     `iptables -F` / `nft flush ruleset`. The dominant event; it suppresses
+//     the weaker "ruleset_changed".
+//   - "ruleset_changed" (R32): the canonical ruleset hash changed between
+//     snapshots (and it wasn't a flush).
+//
+// As with diffMAC, a synthetic alarm requires both snapshots to carry observed
+// firewall state; a nil on either side is recorded as added/removed field
+// changes only, never an alarm.
+func diffFirewall(old, new *collector.Firewall, r *Result) {
+	if old == nil && new == nil {
+		return
+	}
+	if old == nil {
+		r.Changes = append(r.Changes, Change{"firewall", "added", "backend",
+			"", new.Backend, false})
+		return
+	}
+	if new == nil {
+		r.Changes = append(r.Changes, Change{"firewall", "removed", "backend",
+			old.Backend, "", false})
+		return
+	}
+
+	if old.Backend != new.Backend {
+		r.Changes = append(r.Changes, Change{"firewall", "modified", "backend",
+			old.Backend, new.Backend, false})
+	}
+	if old.RulesetHash != new.RulesetHash {
+		r.Changes = append(r.Changes, Change{"firewall", "modified", "ruleset_hash",
+			old.RulesetHash, new.RulesetHash, false})
+	}
+	if old.Rules != new.Rules {
+		r.Changes = append(r.Changes, Change{"firewall", "modified", "rules",
+			fmt.Sprintf("%d", old.Rules), fmt.Sprintf("%d", new.Rules), false})
+	}
+
+	// R33 — populated ruleset emptied while the engine is still present.
+	// Dominant over the generic hash-change signal.
+	if old.Rules >= firewallFlushThreshold && new.Rules == 0 && new.Backend != "none" {
+		r.Changes = append(r.Changes, Change{"firewall", "modified", "flushed",
+			fmt.Sprintf("%d rules", old.Rules), "0 rules", false})
+	} else if old.RulesetHash != new.RulesetHash && new.Backend != "none" {
+		// R32 — any other ruleset content change. Suppressed when the new
+		// backend is "none" (firewall tooling itself vanished, not a rule
+		// edit) to avoid a false alarm on an unobservable state.
+		r.Changes = append(r.Changes, Change{"firewall", "modified", "ruleset_changed",
+			old.RulesetHash, new.RulesetHash, false})
+	}
 }
 
 // diffNICDrivers compares NIC driver and firmware versions.

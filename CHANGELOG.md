@@ -78,6 +78,23 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
   matches the persisted `/etc/selinux/config` value (e.g. a live
   `setenforce` not written to config). Fires only on transition into the
   mismatched state. Medium severity.
+- **Phase N — firewall rule hashing.** New always-on `firewall` capture
+  section records the *identity* of the host's packet-filter ruleset: the
+  backend (`nftables`/`iptables`/`none`), a SHA-256 of the canonicalized
+  ruleset, and a rule count. Canonicalization strips volatile content
+  (packet/byte counters, the `iptables-save` timestamp header) so a stable
+  ruleset hashes stably. The collector shells out to `nft` / `iptables-save`
+  (backend precedence nftables → iptables → none, by tool presence), the same
+  approach as the packages/services/nic_drivers collectors; reading requires
+  root. Only the hash is stored — never the rules, which embed IPs/CIDRs/ports
+  — so the section carries no Category B identifiers and is exempt from
+  export-time redaction. Per-rule structural diff remains a v0.5 concern.
+  See `docs/V04_FIREWALL_PLAN.md`.
+- **R32_FIREWALL_RULESET_CHANGED** — fires when the canonical ruleset hash
+  changes between snapshots. Medium severity.
+- **R33_FIREWALL_FLUSHED** — fires when a populated ruleset (≥ 5 rules) drops
+  to zero while the packet-filter engine is still present — the signature of
+  `iptables -F` / `nft flush ruleset`. Dominant over R32. High severity.
 
 ### Fixed
 

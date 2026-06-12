@@ -1742,11 +1742,12 @@ func checkStoreWritable(s *store.Store) error {
 var allWatchSections = []string{
 	"host", "network", "kernel_params", "packages", "services",
 	"listening_ports", "multicast",
-	// v0.3 security signals + v0.4 MAC — always-on, capture-gated. These are
-	// cheap reads and exactly the drift a tamper-evident tool must catch
-	// in near-real-time (new sudoers entry, new user, `setenforce 0`).
+	// v0.3 security signals + v0.4 MAC/firewall — always-on, capture-gated.
+	// These are cheap reads and exactly the drift a tamper-evident tool must
+	// catch in near-real-time (new sudoers entry, new user, `setenforce 0`,
+	// `iptables -F`).
 	"users", "groups", "sudoers", "mounts", "modules",
-	"cron", "timers", "ssh_keys", "mac",
+	"cron", "timers", "ssh_keys", "mac", "firewall",
 	"cpu", "kernel_counters", "processes", "sockets", "nic_drivers", "connections",
 }
 

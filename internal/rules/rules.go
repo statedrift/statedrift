@@ -381,6 +381,25 @@ func DefaultRules() []Rule {
 			ChangeType:  "modified",
 			KeyPattern:  "config_drift",
 		},
+		// v0.4 Phase N — firewall ruleset identity (iptables/nftables)
+		{
+			ID:          "R32_FIREWALL_RULESET_CHANGED",
+			Name:        "Firewall ruleset changed",
+			Description: "The SHA-256 of the canonicalized firewall ruleset changed between snapshots (volatile packet/byte counters are excluded, so this is a real rule change, not traffic). Could be a legitimate deployment or an attacker opening a port or weakening a policy — worth a look either way.",
+			Severity:    SeverityMedium,
+			Section:     "firewall",
+			ChangeType:  "modified",
+			KeyPattern:  "ruleset_changed",
+		},
+		{
+			ID:          "R33_FIREWALL_FLUSHED",
+			Name:        "Firewall flushed",
+			Description: "The firewall ruleset went from populated to empty while the packet-filter engine is still present — the signature of `iptables -F` / `nft flush ruleset`. Flushing the firewall removes all filtering in one step and is a common early move in a host compromise.",
+			Severity:    SeverityHigh,
+			Section:     "firewall",
+			ChangeType:  "modified",
+			KeyPattern:  "flushed",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",
