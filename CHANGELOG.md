@@ -7,7 +7,11 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
-## [0.4.0] — Unreleased
+## [0.4.0] — 2026-06-12
+
+Security completeness: process forensics, export-time redaction, a
+compliance-grade `baseline` command, SELinux/AppArmor enforcement tracking,
+and firewall ruleset hashing — plus 8 new free anomaly rules (R26–R33).
 
 ### Added
 
