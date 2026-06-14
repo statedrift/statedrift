@@ -1,7 +1,7 @@
 package collector
 
-// collect_firewall.go — v0.4 Phase N: firewall ruleset identity. Always-on
-// when the capture allowlist permits.
+// collect_firewall.go — firewall ruleset capture. Always-on when the capture
+// allowlist permits.
 //
 // There is no readable /proc representation of the packet-filter ruleset, so
 // this collector shells out to `nft` / `iptables-save` — the same approach
@@ -9,9 +9,10 @@ package collector
 // collectors already take. Reading the ruleset requires root; `statedrift
 // snap` runs as root by design.
 //
-// Only a SHA-256 of the canonicalized ruleset and a rule count are stored —
-// never the rules themselves, which embed Category B identifiers (IPs, CIDRs,
-// ports). Per-rule structural diffing is a v0.5 concern.
+// v0.4 Phase N stored a SHA-256 of the canonicalized ruleset plus a rule
+// count (drives R32/R33). v0.5 Phase O adds the parsed, ordered RuleList for
+// per-rule diff. The rule text embeds Category B identifiers (IPs/CIDRs/ports),
+// so the section is redacted at export — see internal/redact.
 
 import (
 	"crypto/sha256"
@@ -47,26 +48,109 @@ func collectFirewall() (*Firewall, error) {
 			return nil, fmt.Errorf("nft list ruleset: %w", err)
 		}
 		canonical, rules := canonicalizeNftables(string(out))
-		return &Firewall{Backend: "nftables", RulesetHash: hashRuleset(canonical), Rules: rules}, nil
+		return &Firewall{
+			Backend:     "nftables",
+			RulesetHash: hashRuleset(canonical),
+			Rules:       rules,
+			RuleList:    parseNftablesRules(string(out)),
+		}, nil
 
 	case lookPath("iptables-save"):
-		out, err := exec.Command("iptables-save").Output()
+		v4, err := exec.Command("iptables-save").Output()
 		if err != nil {
 			return nil, fmt.Errorf("iptables-save: %w", err)
 		}
-		var b strings.Builder
-		b.Write(out)
+		var v6 []byte
 		if lookPath("ip6tables-save") {
 			if out6, err := exec.Command("ip6tables-save").Output(); err == nil {
-				b.Write(out6)
+				v6 = out6
 			}
 		}
-		canonical, rules := canonicalizeIptables(b.String())
-		return &Firewall{Backend: "iptables", RulesetHash: hashRuleset(canonical), Rules: rules}, nil
+		// Hash over the concatenated v4+v6 blob (Phase N behaviour, unchanged).
+		canonical, rules := canonicalizeIptables(string(v4) + string(v6))
+		ruleList := parseIptablesRules(string(v4), "ip4")
+		ruleList = append(ruleList, parseIptablesRules(string(v6), "ip6")...)
+		return &Firewall{
+			Backend:     "iptables",
+			RulesetHash: hashRuleset(canonical),
+			Rules:       rules,
+			RuleList:    ruleList,
+		}, nil
 
 	default:
 		return &Firewall{Backend: "none"}, nil
 	}
+}
+
+// parseIptablesRules extracts the ordered rules from one `iptables-save` /
+// `ip6tables-save` output. `*table` lines set the current table; `-A CHAIN …`
+// lines become rules located at (family+" "+table, CHAIN). family is "ip4" or
+// "ip6" so a `-A INPUT` in each address family stays distinct. Counters and
+// comments are stripped to match the ruleset hash. Returns nil for empty input.
+func parseIptablesRules(raw, family string) []FirewallRule {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var rules []FirewallRule
+	table := ""
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimRight(line, " \t")
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "*") {
+			table = family + " " + strings.TrimPrefix(line, "*")
+			continue
+		}
+		if strings.HasPrefix(line, "-A ") || strings.HasPrefix(line, "-I ") {
+			line = iptablesCounter.ReplaceAllString(line, "[0:0]")
+			fields := strings.Fields(line)
+			chain := ""
+			if len(fields) >= 2 {
+				chain = fields[1]
+			}
+			rules = append(rules, FirewallRule{Table: table, Chain: chain, Rule: line})
+		}
+	}
+	return rules
+}
+
+// parseNftablesRules extracts the ordered rules from `nft list ruleset`.
+// Brace-depth tracking sets the current table ("<family> <name>") and chain;
+// statement lines inside a chain (depth ≥ 2) that are not the
+// "type … policy …;" declaration become rules. Inline counters are zeroed to
+// match the ruleset hash. Returns nil for empty input.
+func parseNftablesRules(raw string) []FirewallRule {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var rules []FirewallRule
+	table, chain := "", ""
+	depth := 0
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		trimmed = nftCounter.ReplaceAllString(trimmed, "packets 0 bytes 0")
+
+		switch {
+		case depth == 0 && strings.HasPrefix(trimmed, "table ") && strings.HasSuffix(trimmed, "{"):
+			// "table <family> <name> {"
+			table = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "table "), "{"))
+		case depth == 1 && strings.HasPrefix(trimmed, "chain ") && strings.HasSuffix(trimmed, "{"):
+			// "chain <name> {"
+			chain = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "chain "), "{"))
+		case depth >= 2 && !strings.HasPrefix(trimmed, "type ") &&
+			!strings.HasPrefix(trimmed, "}") && !strings.HasSuffix(trimmed, "{"):
+			rules = append(rules, FirewallRule{Table: table, Chain: chain, Rule: trimmed})
+		}
+		depth += strings.Count(trimmed, "{") - strings.Count(trimmed, "}")
+		if depth < 0 {
+			depth = 0
+		}
+	}
+	return rules
 }
 
 // lookPath reports whether name is an executable on PATH.

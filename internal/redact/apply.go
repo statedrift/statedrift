@@ -13,6 +13,7 @@ const (
 	tagUser = "user" // login names, group names, group members, ssh users, cron users
 	tagPath = "path" // home directories, file paths that may embed a username
 	tagText = "text" // free-text fields: GECOS, SSH key comment, sudoers line, systemd timer description/unit
+	tagFW   = "fw"   // firewall rule text (embeds IPs/CIDRs/ports) — hashed whole, sudoers-style
 )
 
 // Apply walks snap in-place, replacing Category B identifier fields with
@@ -69,6 +70,19 @@ func applyNetwork(snap *collector.Snapshot, r *Redactor) {
 
 	for i := range snap.MulticastGroups {
 		snap.MulticastGroups[i].Group = r.tag(tagIP, snap.MulticastGroups[i].Group)
+	}
+
+	// Firewall rule text embeds IPs/CIDRs/ports (Cat B). Rather than
+	// regex-substituting the embedded addresses — fragile for IPv6/CIDR and a
+	// redaction gap is a leak — each rule is hashed whole, sudoers-style (see
+	// the tagText sudoers handling in applyHostnames). Table and chain names
+	// are structural, not Cat B, so they stay clear; this keeps the redacted
+	// view diffable by (table, chain) while guaranteeing no address leak. The
+	// ruleset_hash field is already an opaque digest and needs no redaction.
+	if snap.Firewall != nil {
+		for i := range snap.Firewall.RuleList {
+			snap.Firewall.RuleList[i].Rule = r.tag(tagFW, snap.Firewall.RuleList[i].Rule)
+		}
 	}
 }
 

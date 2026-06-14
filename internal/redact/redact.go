@@ -45,7 +45,8 @@ const hashHexLen = 12
 type Options struct {
 	// Network, when true, redacts IP addresses, MAC addresses, route
 	// destinations and gateways, DNS nameservers, listening-port
-	// addresses, and connection endpoints.
+	// addresses, connection endpoints, and firewall rule text (hashed
+	// whole; table/chain names stay clear).
 	Network bool
 
 	// Hostnames, when true, redacts the hostname / machine_id / boot_id

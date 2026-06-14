@@ -258,16 +258,30 @@ type MAC struct {
 // the iptables-save timestamp stripped) is hashed with SHA-256; only that
 // hash and a rule count are stored.
 //
-// Storing a hash rather than the rules is deliberate: firewall rules embed
-// IPs, CIDRs, and ports — all Category B identifiers. Keeping only the hash
-// keeps them out of the chain entirely, so this section has no Cat B fields
-// and is exempt from export-time redaction. Per-rule structural diffing is a
-// v0.5 concern; v0.4 answers only "did the ruleset change, and was it
-// flushed?".
+// The v0.4 hash (RulesetHash) and rule count are retained so R32/R33 keep
+// working. v0.5 Phase O adds RuleList — the parsed rules — enabling per-rule
+// diff. Firewall rules embed IPs/CIDRs/ports (Category B), so with RuleList
+// present the section IS subject to export-time redaction (--redact-network
+// hashes each rule whole, sudoers-style), bringing it in line with the
+// connections/listening_ports collectors.
 type Firewall struct {
 	Backend     string `json:"backend"`                // "nftables" | "iptables" | "none"
 	RulesetHash string `json:"ruleset_hash,omitempty"` // SHA-256 hex of canonicalized ruleset
 	Rules       int    `json:"rules,omitempty"`        // canonical rule-line count (flush signal)
+
+	// RuleList is the parsed, ordered ruleset (v0.5 Phase O). nil on
+	// pre-0.5 snapshots and when the backend is "none". Order is the on-host
+	// rule order — significant, since firewalls are first-match-wins.
+	RuleList []FirewallRule `json:"rule_list,omitempty"`
+}
+
+// FirewallRule is one parsed packet-filter rule, located by table and chain.
+// Rule is the canonical rule text with volatile counters stripped (matching
+// the ruleset hash). Position within Firewall.RuleList is the on-host order.
+type FirewallRule struct {
+	Table string `json:"table"` // "filter", "inet filter", "ip4 filter", "ip6 nat", ...
+	Chain string `json:"chain"` // "INPUT", "input", "FORWARD", custom chains
+	Rule  string `json:"rule"`  // canonical rule text, counters stripped
 }
 
 // Mount is a single entry from /proc/self/mountinfo. Options carry the
