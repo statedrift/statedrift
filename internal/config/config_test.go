@@ -229,10 +229,28 @@ func TestLoadInvalidJSONReturnsError(t *testing.T) {
 
 func TestCollectorsIsEnabledAll(t *testing.T) {
 	c := Collectors{All: true}
-	for _, name := range []string{"cpu", "kernel_counters", "processes", "sockets", "nic_drivers", "connections"} {
+	for _, name := range []string{"cpu", "kernel_counters", "processes", "sockets", "nic_drivers", "connections", "filesystem"} {
 		if !c.IsEnabled(name) {
 			t.Errorf("All=true: IsEnabled(%q) should be true", name)
 		}
+	}
+}
+
+func TestCollectorsIsEnabledFilesystem(t *testing.T) {
+	c := Collectors{Filesystem: true}
+	if !c.IsEnabled("filesystem") {
+		t.Error("Filesystem=true: IsEnabled(filesystem) should be true")
+	}
+	if c.IsEnabled("cpu") {
+		t.Error("Filesystem=true: IsEnabled(cpu) should be false")
+	}
+}
+
+func TestValidateSectionIntervalFilesystem(t *testing.T) {
+	cfg := Default()
+	cfg.SectionIntervals = map[string]string{"filesystem": "6h"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("filesystem should be a valid section_intervals key: %v", err)
 	}
 }
 

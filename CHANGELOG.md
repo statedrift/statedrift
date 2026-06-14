@@ -9,8 +9,9 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [0.5.0] — Unreleased
 
-First v0.5 theme: firewall moves from "did it change?" to "which rule
-changed?". The parsed ruleset is now stored, enabling per-rule diff.
+v0.5 deepens the diff: firewall moves from "did it change?" to "which rule
+changed?", and a new filesystem collector hashes watched roots into a
+per-file tree for content / permission / ownership drift.
 
 ### Added
 
@@ -21,6 +22,18 @@ changed?". The parsed ruleset is now stored, enabling per-rule diff.
   an ACCEPT is a behavioural change). A rule edited in place surfaces as
   removed + added (rules are atomic). Parsers cover both `iptables-save`
   (v4/v6 kept distinct via `ip4`/`ip6` table tags) and `nft list ruleset`.
+- **Phase P — recursive filesystem hash tree.** New opt-in collector
+  (`collectors.filesystem`, default off) that walks a configured set of roots
+  — defaulting to `/etc` — and records, per path, the mode / ownership / size
+  and a streamed SHA-256 for regular files, plus a single Merkle `root_hash`.
+  The diff reports per-file `added` / `removed` / `modified` changes (the
+  latter keyed by attribute: `.mode` / `.uid` / `.gid` / `.size` / `.sha256` /
+  `.target`), catching config drift, tampered binaries, and permission
+  changes. Symlinks are recorded but never followed. Size caps
+  (`max_file_size` 50 MiB, `max_files` 50000) bound snapshot growth with
+  deterministic truncation. The collector and its diff are free; paths and
+  hashes are not Category B, so the section is not redacted (see
+  `docs/DESIGN.md` §4.5).
 
 ### Changed
 

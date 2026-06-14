@@ -263,6 +263,15 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	// v0.5 Phase P — filesystem hash tree (opt-in).
+	if cfg.Collectors.IsEnabled("filesystem") {
+		snap.Filesystem, err = collectFilesystem(cfg)
+		if err != nil {
+			snap.Filesystem = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("filesystem: %v", err))
+		}
+	}
+
 	if len(collectorErrors) > 0 {
 		snap.CollectorErrors = collectorErrors
 	}
@@ -489,6 +498,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		snap.Connections, err = collectConnections(inodes)
 		if err != nil {
 			collectorErrors = append(collectorErrors, fmt.Sprintf("connections: %v", err))
+		}
+	}
+
+	if due["filesystem"] && cfg.Collectors.IsEnabled("filesystem") {
+		snap.Filesystem, err = collectFilesystem(cfg)
+		if err != nil {
+			snap.Filesystem = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("filesystem: %v", err))
 		}
 	}
 

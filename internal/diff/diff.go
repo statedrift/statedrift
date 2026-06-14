@@ -85,6 +85,11 @@ func Compare(old, new *collector.Snapshot) *Result {
 		diffFirewall(old.Firewall, new.Firewall, r)
 	}
 
+	// v0.5 Phase P — filesystem hash tree.
+	if old.Filesystem != nil || new.Filesystem != nil {
+		diffFilesystem(old.Filesystem, new.Filesystem, r)
+	}
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)
