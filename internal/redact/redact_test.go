@@ -85,6 +85,15 @@ func fixtureSnapshot() *collector.Snapshot {
 			{Source: "//fileserver/share", MountPoint: "/mnt/share", FSType: "cifs", MountOptions: "rw"},
 			{Source: "nfs.example.com:/export", MountPoint: "/mnt/nfs", FSType: "nfs", MountOptions: "rw"},
 		},
+		Firewall: &collector.Firewall{
+			Backend:     "iptables",
+			RulesetHash: "deadbeefcafef00d",
+			Rules:       2,
+			RuleList: []collector.FirewallRule{
+				{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -s 198.51.100.9/32 -p tcp --dport 22 -j ACCEPT"},
+				{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -s 198.51.100.9/32 -p tcp --dport 80 -j ACCEPT"},
+			},
+		},
 	}
 }
 
@@ -231,6 +240,10 @@ func TestApplyHostnamesOnlyLeavesNetworkAlone(t *testing.T) {
 	if s.Network.DNS.Nameservers[0] != "8.8.8.8" {
 		t.Errorf("Hostnames-only redaction touched DNS.Nameservers: %q", s.Network.DNS.Nameservers[0])
 	}
+	// Firewall rules are network Cat B — --redact-hostnames must leave them alone.
+	if strings.HasPrefix(s.Firewall.RuleList[0].Rule, "fw:") {
+		t.Errorf("Hostnames-only redaction touched Firewall.RuleList: %q", s.Firewall.RuleList[0].Rule)
+	}
 
 	// And Hostnames *did* get redacted.
 	if s.Host.Hostname == "prod-web-01" {
@@ -281,6 +294,8 @@ func TestApplyNetworkFieldsAllCovered(t *testing.T) {
 		{"Connections[0].LocalAddr", s.Connections[0].LocalAddr},
 		{"Connections[0].RemoteAddr", s.Connections[0].RemoteAddr},
 		{"MulticastGroups[0].Group", s.MulticastGroups[0].Group},
+		{"Firewall.RuleList[0].Rule", s.Firewall.RuleList[0].Rule},
+		{"Firewall.RuleList[1].Rule", s.Firewall.RuleList[1].Rule},
 	}
 
 	for _, c := range checks {
@@ -291,6 +306,16 @@ func TestApplyNetworkFieldsAllCovered(t *testing.T) {
 		if !strings.Contains(c.got, ":") {
 			t.Errorf("%s = %q — expected a tagged hash like ip:abc123", c.name, c.got)
 		}
+	}
+
+	// Firewall table/chain are structural and stay clear; ruleset_hash is
+	// already an opaque digest and is not re-redacted.
+	if s.Firewall.RuleList[0].Table != "ip4 filter" || s.Firewall.RuleList[0].Chain != "INPUT" {
+		t.Errorf("firewall table/chain must not be redacted: %q/%q",
+			s.Firewall.RuleList[0].Table, s.Firewall.RuleList[0].Chain)
+	}
+	if s.Firewall.RulesetHash != "deadbeefcafef00d" {
+		t.Errorf("ruleset_hash should not be re-redacted: %q", s.Firewall.RulesetHash)
 	}
 }
 
@@ -442,6 +467,7 @@ func TestApplyNoLeakOfOriginalValues(t *testing.T) {
 		"Run foo daily",
 		"foo.service",
 		"NOPASSWD",
+		"198.51.100.9", // firewall rule embedded IP
 	}
 
 	out := snapshotJSON(t, s)
@@ -449,6 +475,40 @@ func TestApplyNoLeakOfOriginalValues(t *testing.T) {
 		if bytes.Contains(out, []byte(leak)) {
 			t.Errorf("redacted snapshot leaks %q", leak)
 		}
+	}
+}
+
+func TestApplyFirewallDeterministicWithinBundle(t *testing.T) {
+	// Identical rule text hashes identically within a bundle, so an auditor
+	// can still diff a redacted ruleset structurally (same value → same hash).
+	salt := []byte("0123456789abcdef0123456789abcdef")
+	rule := "-A INPUT -s 198.51.100.9/32 -j ACCEPT"
+	s := &collector.Snapshot{
+		Firewall: &collector.Firewall{
+			Backend: "iptables",
+			RuleList: []collector.FirewallRule{
+				{Table: "ip4 filter", Chain: "INPUT", Rule: rule},
+				{Table: "ip4 filter", Chain: "OUTPUT", Rule: rule},
+			},
+		},
+	}
+	Apply(s, NewRedactor(Options{Network: true}, salt))
+
+	got0, got1 := s.Firewall.RuleList[0].Rule, s.Firewall.RuleList[1].Rule
+	if !strings.HasPrefix(got0, "fw:") {
+		t.Fatalf("rule not hashed with fw tag: %q", got0)
+	}
+	if got0 != got1 {
+		t.Errorf("identical rule text should hash identically: %q vs %q", got0, got1)
+	}
+}
+
+func TestApplyFirewallNilSafe(t *testing.T) {
+	// A snapshot with no firewall section (Firewall == nil) must not panic.
+	s := &collector.Snapshot{Host: collector.Host{Hostname: "h"}}
+	Apply(s, NewRedactor(Options{Network: true}, []byte("salt")))
+	if s.Firewall != nil {
+		t.Error("nil Firewall should stay nil")
 	}
 }
 

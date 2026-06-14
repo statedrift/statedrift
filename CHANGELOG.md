@@ -7,6 +7,35 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
+## [0.5.0] — Unreleased
+
+First v0.5 theme: firewall moves from "did it change?" to "which rule
+changed?". The parsed ruleset is now stored, enabling per-rule diff.
+
+### Added
+
+- **Phase O — per-rule firewall diff.** `Firewall` gains `rule_list`, the
+  parsed, ordered ruleset (`{table, chain, rule}` per entry). The diff now
+  reports per-chain `added` / `removed` rules and detects per-chain
+  `reordered` changes (firewalls are first-match-wins, so moving a DROP above
+  an ACCEPT is a behavioural change). A rule edited in place surfaces as
+  removed + added (rules are atomic). Parsers cover both `iptables-save`
+  (v4/v6 kept distinct via `ip4`/`ip6` table tags) and `nft list ruleset`.
+
+### Changed
+
+- **`schema_version` bumped `0.4` → `0.5`.** `rule_list` is additive and
+  `omitempty`; pre-0.5 snapshots simply lack it and diff via the Phase N
+  hash-only path. R32 (`ruleset_changed`) and R33 (`flushed`) fire exactly
+  as before from the retained `ruleset_hash` / `rules` signals.
+- **Firewall is now redactable.** This reverses Phase N's hash-only stance:
+  storing the rules means firewall now carries Category B identifiers
+  (IPs/CIDRs/ports), so `--redact-network` hashes each rule's text whole
+  (`fw:<hash>`, sudoers-style); table and chain names stay clear. See
+  `docs/DESIGN.md` §4.5.
+
+---
+
 ## [0.4.0] — 2026-06-12
 
 Security completeness: process forensics, export-time redaction, a

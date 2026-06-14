@@ -1152,7 +1152,15 @@ func diffFirewall(old, new *collector.Firewall, r *Result) {
 		r.Changes = append(r.Changes, Change{"firewall", "modified", "backend",
 			old.Backend, new.Backend, false})
 	}
-	if old.RulesetHash != new.RulesetHash {
+
+	// Per-rule structural detail is available only when both snapshots carry a
+	// parsed RuleList (v0.5 Phase O). When it is, the opaque ruleset_hash
+	// field-line is suppressed — the per-rule added/removed/reordered changes
+	// below are the human-readable detail (Decision #7). Pre-0.5 snapshots (or
+	// a flush/populate edge where one side has no rules) keep the Phase N
+	// hash-only field-line.
+	perRule := len(old.RuleList) > 0 && len(new.RuleList) > 0
+	if old.RulesetHash != new.RulesetHash && !perRule {
 		r.Changes = append(r.Changes, Change{"firewall", "modified", "ruleset_hash",
 			old.RulesetHash, new.RulesetHash, false})
 	}
@@ -1173,6 +1181,123 @@ func diffFirewall(old, new *collector.Firewall, r *Result) {
 		r.Changes = append(r.Changes, Change{"firewall", "modified", "ruleset_changed",
 			old.RulesetHash, new.RulesetHash, false})
 	}
+
+	if perRule {
+		diffFirewallRules(old.RuleList, new.RuleList, r)
+	}
+}
+
+// diffFirewallRules emits the per-rule structural changes between two parsed
+// rulesets (v0.5 Phase O). Rules are grouped by their (table, chain) location
+// and compared per chain; chains iterate in sorted order for deterministic
+// output. Within each chain it emits, in order:
+//
+//   - "removed" — a rule present in old but not new (key "<table>/<chain>").
+//   - "added"   — a rule present in new but not old (key "<table>/<chain>").
+//   - "reordered" — the rules common to both changed relative order within the
+//     chain (one synthetic key "<table>/<chain>.reordered"). Firewalls are
+//     first-match-wins, so reordering is itself a behavioural change.
+//
+// Rule identity is the full canonical text; a modified rule surfaces as a
+// removed + added pair (rules are atomic — no partial "modified").
+func diffFirewallRules(old, new []collector.FirewallRule, r *Result) {
+	oldByChain, oldOrder := groupFirewallRules(old)
+	newByChain, _ := groupFirewallRules(new)
+
+	// Iterate the union of chain keys in sorted order.
+	seen := map[string]bool{}
+	var chains []string
+	for _, k := range oldOrder {
+		if !seen[k] {
+			seen[k] = true
+			chains = append(chains, k)
+		}
+	}
+	for k := range newByChain {
+		if !seen[k] {
+			seen[k] = true
+			chains = append(chains, k)
+		}
+	}
+	sort.Strings(chains)
+
+	for _, chain := range chains {
+		oldRules := oldByChain[chain]
+		newRules := newByChain[chain]
+		oldSet := sliceToSet(oldRules)
+		newSet := sliceToSet(newRules)
+
+		for _, ru := range oldRules {
+			if !newSet[ru] {
+				r.Changes = append(r.Changes, Change{"firewall", "removed", chain,
+					ru, "", false})
+			}
+		}
+		for _, ru := range newRules {
+			if !oldSet[ru] {
+				r.Changes = append(r.Changes, Change{"firewall", "added", chain,
+					"", ru, false})
+			}
+		}
+
+		// Reorder detection: compare the order of the rules common to both,
+		// filtered out of each side's on-host sequence.
+		oldCommon := filterStrings(oldRules, newSet)
+		newCommon := filterStrings(newRules, oldSet)
+		if !equalStrings(oldCommon, newCommon) {
+			r.Changes = append(r.Changes, Change{"firewall", "modified", chain + ".reordered",
+				strings.Join(oldCommon, " | "), strings.Join(newCommon, " | "), false})
+		}
+	}
+}
+
+// groupFirewallRules buckets rules by their "<table>/<chain>" key, preserving
+// the on-host order within each bucket. It also returns the chain keys in the
+// order first seen, so callers can build a deterministic chain iteration.
+func groupFirewallRules(rules []collector.FirewallRule) (map[string][]string, []string) {
+	byChain := map[string][]string{}
+	var order []string
+	for _, ru := range rules {
+		key := ru.Table + "/" + ru.Chain
+		if _, ok := byChain[key]; !ok {
+			order = append(order, key)
+		}
+		byChain[key] = append(byChain[key], ru.Rule)
+	}
+	return byChain, order
+}
+
+// sliceToSet returns the set of distinct strings in s.
+func sliceToSet(s []string) map[string]bool {
+	set := make(map[string]bool, len(s))
+	for _, v := range s {
+		set[v] = true
+	}
+	return set
+}
+
+// filterStrings returns the elements of s that are members of keep, in order.
+func filterStrings(s []string, keep map[string]bool) []string {
+	var out []string
+	for _, v := range s {
+		if keep[v] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// equalStrings reports whether a and b are equal element-for-element.
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // diffNICDrivers compares NIC driver and firmware versions.

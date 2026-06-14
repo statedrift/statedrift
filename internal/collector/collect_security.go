@@ -278,7 +278,16 @@ func shouldSkipSudoersInclude(name string) bool {
 // limitations" for rationale and the planned re-evaluation when the cron
 // pattern-redactor lands in Phase D.
 
-// SchemaVersionV04 is the value written into Snapshot.SchemaVersion by v0.4+
-// binaries. Bumped when the schema changes in a way callers should notice.
-// v0.3 wrote "0.3"; v0.4 added Process tick fields, Threads, and start_ticks.
+// SchemaVersionV04 is the value written into Snapshot.SchemaVersion by v0.4
+// binaries. v0.3 wrote "0.3"; v0.4 added Process tick fields, Threads,
+// start_ticks, the mac section, and the firewall hash/count.
 const SchemaVersionV04 = "0.4"
+
+// SchemaVersionV05 is the value written by v0.5+ binaries. v0.5 added the
+// parsed firewall RuleList (Phase O). Bumped per the convention of bumping
+// schema_version on the first schema change of a new minor line. The field
+// is additive/omitempty; pre-0.5 readers ignore it.
+const SchemaVersionV05 = "0.5"
+
+// SchemaVersionCurrent is the schema version written by this binary.
+const SchemaVersionCurrent = SchemaVersionV05

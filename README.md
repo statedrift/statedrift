@@ -80,7 +80,7 @@ Every snapshot records:
 | `services` | Systemd unit names and states | `systemctl list-units` |
 | `listening_ports` | TCP sockets in LISTEN state | `/proc/net/tcp` |
 | `mac` | SELinux/AppArmor enforcement mode and policy | `/sys/fs/selinux`, `/sys/kernel/security/apparmor` |
-| `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) | `nft list ruleset`, `iptables-save` |
+| `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) plus the parsed per-rule list for added/removed/reordered diff (rules embed IPs/ports — redacted by `--redact-network`) | `nft list ruleset`, `iptables-save` |
 
 Each snapshot is SHA-256 hash-chained to the previous one. Modifying any snapshot breaks the chain — and `statedrift verify` catches it.
 

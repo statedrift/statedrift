@@ -60,7 +60,7 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 	now := time.Now().UTC()
 
 	snap := &Snapshot{
-		SchemaVersion: SchemaVersionV04,
+		SchemaVersion: SchemaVersionCurrent,
 		Version:       Version,
 		SnapshotID:    fmt.Sprintf("snap-%s-%s-%s", now.Format("20060102"), now.Format("150405"), randomHex(3)),
 		Timestamp:     now,
@@ -293,7 +293,7 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 	// Fields are only ever reassigned (never mutated in-place), so sharing
 	// the underlying backing arrays with prevSnap is safe.
 	snap := *prevSnap
-	snap.SchemaVersion = SchemaVersionV04
+	snap.SchemaVersion = SchemaVersionCurrent
 	snap.Version = Version
 	snap.SnapshotID = fmt.Sprintf("snap-%s-%s-%s", now.Format("20060102"), now.Format("150405"), randomHex(3))
 	snap.Timestamp = now

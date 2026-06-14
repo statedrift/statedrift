@@ -252,7 +252,7 @@ which keeps cross-version chains valid for the lifetime of the project.
 | **systemd_timers** (v0.3) | `/etc/systemd/system/*.timer`, `/usr/lib/systemd/system/*.timer` | Same as cron, different mechanism |
 | **mounts** (v0.3) | `/proc/self/mountinfo` | Mount adds, `ro→rw` flips, dropped `nosuid`/`nodev`/`noexec` |
 | **mac** (v0.4) | `/sys/fs/selinux`, `/etc/selinux/config`, `/sys/kernel/security/apparmor` | MAC disable/downgrade removes an exploit-containment layer; runtime-vs-config drift |
-| **firewall** (v0.4) | `nft list ruleset`, `iptables-save` | Ruleset change/flush opens exposure; stored as a hash so rules' IPs/ports never enter the chain |
+| **firewall** (v0.4 hash, v0.5 rules) | `nft list ruleset`, `iptables-save` | Ruleset change/flush opens exposure; v0.5 stores the parsed rules for per-rule diff (rules embed IPs/ports — Cat B, redacted at export) |
 
 ### 4.3 What is deliberately not captured
 
@@ -355,7 +355,9 @@ only when an audit bundle leaves the operator's premises.
 | `processes` (optional) | `comm` | Process binary name | (not covered) |
 | `services` | unit names | Unit names can leak deployment topology | (not covered) |
 | `mac` (v0.4) | all fields | Enforcement mode, policy type name, profile counts — no IPs/hostnames/users/paths | (no Cat B — exempt) |
-| `firewall` (v0.4) | all fields | Backend enum, opaque SHA-256 ruleset hash, rule count — rules (with their IPs/ports) are hashed, never stored | (no Cat B — exempt by design) |
+| `firewall` (v0.4) | `backend`, `ruleset_hash`, `rules` | Backend enum, opaque SHA-256 ruleset hash, rule count | (not Cat B) |
+| `firewall.rule_list[].rule` (v0.5) | full rule text | Embeds IPs / CIDRs / ports | `--redact-network` (whole-rule hashed, sudoers-style) |
+| `firewall.rule_list[].table`, `.chain` (v0.5) | table / chain names | Structural location, not an identifier | (not Cat B) |
 
 Operators preparing to send an audit bundle externally should treat the
 above as the surface to review. v0.4 ships `statedrift export
