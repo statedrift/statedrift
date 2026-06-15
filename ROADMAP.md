@@ -32,10 +32,12 @@ Adds rules R14-R25 to the free anomaly engine.
   state. Limited filesystem hash diff. Firewall rule hashing.
   `statedrift baseline` for ad-hoc compliance checks against a saved
   known-good state.
-- **v0.5.0 — Pro depth.** Recursive filesystem hash trees with
-  structural diff. Rule-by-rule firewall diff *(delivered — Phase O: the
-  parsed ruleset is stored and the diff reports per-chain added / removed /
-  reordered rules)*. Customizable policy rules.
+- **v0.5.0 — Pro depth.** Recursive filesystem hash trees with structural
+  diff *(delivered — Phase P: opt-in `filesystem` collector hashes configured
+  roots into a per-file tree; diff reports per-file added / removed / modified
+  changes)*. Rule-by-rule firewall diff *(delivered — Phase O: the parsed
+  ruleset is stored and the diff reports per-chain added / removed / reordered
+  rules)*. Customizable policy rules.
 - **v0.6.0 — Fleet (Pro).** Baseline export / import / compare across
   many hosts. Container runtime state. AI / GPU runtime configuration.
   DPDK, SR-IOV, and other kernel-bypass networking detection.

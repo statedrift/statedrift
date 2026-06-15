@@ -82,6 +82,8 @@ Every snapshot records:
 | `mac` | SELinux/AppArmor enforcement mode and policy | `/sys/fs/selinux`, `/sys/kernel/security/apparmor` |
 | `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) plus the parsed per-rule list for added/removed/reordered diff (rules embed IPs/ports — redacted by `--redact-network`) | `nft list ruleset`, `iptables-save` |
 
+Optional opt-in collectors (enabled in the `collectors` config block) add CPU / kernel counters / process / socket / NIC-driver inventories and — new in v0.5 — a `filesystem` hash tree. When enabled, `filesystem` walks a configured set of roots (default `/etc`) and records per-file mode, ownership, size, and a SHA-256 content hash plus a Merkle `root_hash`, so the diff reports per-file content / permission / ownership changes. Size caps bound snapshot growth; paths and hashes are not redacted (system config paths, not Category B).
+
 Each snapshot is SHA-256 hash-chained to the previous one. Modifying any snapshot breaks the chain — and `statedrift verify` catches it.
 
 ## What statedrift does NOT do

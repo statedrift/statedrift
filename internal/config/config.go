@@ -19,6 +19,7 @@ type Config struct {
 	SectionIntervals map[string]string `json:"section_intervals"`
 	Ignore           Ignore            `json:"ignore"`
 	Collectors       Collectors        `json:"collectors"`
+	Filesystem       Filesystem        `json:"filesystem"`
 	LicensePath      string            `json:"license_path"`
 	// DisplayTZ controls CLI output formatting and parsing of operator-typed
 	// dates (--since, --until, --from, --to). Storage timestamps are always
@@ -34,8 +35,9 @@ type Ignore struct {
 	Packages   []string `json:"packages"`
 }
 
-// Collectors gates the optional collectors added in v0.2.
-// All default to false (opt-in). Set All to true to enable every optional collector.
+// Collectors gates the optional collectors added in v0.2 (and the v0.5
+// filesystem collector). All default to false (opt-in). Set All to true to
+// enable every optional collector.
 type Collectors struct {
 	All            bool `json:"all"`
 	CPU            bool `json:"cpu"`
@@ -44,7 +46,31 @@ type Collectors struct {
 	Sockets        bool `json:"sockets"`
 	NICDrivers     bool `json:"nic_drivers"`
 	Connections    bool `json:"connections"`
+	Filesystem     bool `json:"filesystem"`
 }
+
+// Filesystem configures the v0.5 Phase P filesystem hash-tree collector
+// (gated by Collectors.Filesystem). Roots defaults to ["/etc"] when empty;
+// MaxFileSize and MaxFiles fall back to FSDefaultMaxFileSize / FSDefaultMaxFiles
+// when zero. Excludes are glob patterns matched against the full path.
+type Filesystem struct {
+	Roots       []string `json:"roots"`
+	Excludes    []string `json:"excludes"`
+	MaxFileSize int64    `json:"max_file_size"` // bytes; 0 → FSDefaultMaxFileSize
+	MaxFiles    int      `json:"max_files"`     // 0 → FSDefaultMaxFiles
+}
+
+// Filesystem collector defaults, applied when the corresponding field is the
+// zero value. Kept here (not in the collector) so they are visible to config
+// validation and documentation.
+const (
+	FSDefaultMaxFileSize = 50 << 20 // 50 MiB — larger files are recorded but not hashed
+	FSDefaultMaxFiles    = 50000    // walk stops here and marks the tree truncated
+)
+
+// FSDefaultRoots is the default watched set when Filesystem.Roots is empty:
+// /etc only (config / credential / unit drift — high value, modest size).
+var FSDefaultRoots = []string{"/etc"}
 
 // IsEnabled returns true if the named optional collector should run.
 // Name must be one of: "cpu", "kernel_counters", "processes", "sockets", "nic_drivers".
@@ -65,6 +91,8 @@ func (c Collectors) IsEnabled(name string) bool {
 		return c.NICDrivers
 	case "connections":
 		return c.Connections
+	case "filesystem":
+		return c.Filesystem
 	}
 	return false
 }
@@ -163,6 +191,7 @@ var knownSectionNames = map[string]bool{
 	"cron": true, "timers": true, "ssh_keys": true, "mac": true, "firewall": true,
 	"cpu": true, "kernel_counters": true, "processes": true,
 	"sockets": true, "nic_drivers": true, "connections": true,
+	"filesystem": true,
 }
 
 // SectionInterval returns the effective collection interval for a named section.

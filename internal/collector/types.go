@@ -48,6 +48,11 @@ type Snapshot struct {
 	// nil on pre-0.4 snapshots and when the "firewall" capture section is disabled.
 	Firewall *Firewall `json:"firewall,omitempty"`
 
+	// v0.5 Phase P — recursive filesystem hash tree over configured roots.
+	// nil on pre-Phase-P snapshots and when the "filesystem" collector is
+	// disabled.
+	Filesystem *FilesystemTree `json:"filesystem,omitempty"`
+
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
 	KernelCounters *KernelCounters      `json:"kernel_counters,omitempty"`
@@ -282,6 +287,37 @@ type FirewallRule struct {
 	Table string `json:"table"` // "filter", "inet filter", "ip4 filter", "ip6 nat", ...
 	Chain string `json:"chain"` // "INPUT", "input", "FORWARD", custom chains
 	Rule  string `json:"rule"`  // canonical rule text, counters stripped
+}
+
+// FilesystemTree is the v0.5 Phase P recursive hash tree over a set of
+// configured roots. RootHash is a Merkle root over all Entries (in lexical
+// walk order), giving a single "did anything change?" signal; Entries carry
+// the per-file detail that drives the structural diff. Truncated is set when
+// the walk stopped at the configured max_files cap.
+//
+// Paths, modes, ownership, and content hashes are not Category B identifiers
+// (default roots are system config paths; see DESIGN §4.5), so this section is
+// not redacted at export.
+type FilesystemTree struct {
+	Roots     []string    `json:"roots"`               // roots actually scanned
+	RootHash  string      `json:"root_hash"`           // SHA-256 Merkle root over Entries
+	Files     int         `json:"files"`               // entry count
+	Truncated bool        `json:"truncated,omitempty"` // hit max_files
+	Entries   []FileEntry `json:"entries,omitempty"`   // lexical order
+}
+
+// FileEntry is one path in a FilesystemTree. SHA256 is set only for regular
+// files within the size cap; it is empty for directories, symlinks, special
+// files, and oversized files. Target is set only for symlinks. Size is 0 for
+// non-regular entries (directory size is volatile and carries no signal).
+type FileEntry struct {
+	Path   string `json:"path"`
+	Mode   string `json:"mode"` // os.FileMode string, e.g. "-rw-r--r--", "drwxr-xr-x", "Lrwxrwxrwx"
+	UID    uint32 `json:"uid"`
+	GID    uint32 `json:"gid"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256,omitempty"`
+	Target string `json:"target,omitempty"`
 }
 
 // Mount is a single entry from /proc/self/mountinfo. Options carry the

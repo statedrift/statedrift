@@ -253,6 +253,7 @@ which keeps cross-version chains valid for the lifetime of the project.
 | **mounts** (v0.3) | `/proc/self/mountinfo` | Mount adds, `ro→rw` flips, dropped `nosuid`/`nodev`/`noexec` |
 | **mac** (v0.4) | `/sys/fs/selinux`, `/etc/selinux/config`, `/sys/kernel/security/apparmor` | MAC disable/downgrade removes an exploit-containment layer; runtime-vs-config drift |
 | **firewall** (v0.4 hash, v0.5 rules) | `nft list ruleset`, `iptables-save` | Ruleset change/flush opens exposure; v0.5 stores the parsed rules for per-rule diff (rules embed IPs/ports — Cat B, redacted at export) |
+| **filesystem** (v0.5, opt-in) | `WalkDir` over configured roots (default `/etc`) | Per-file content/permission/ownership drift; tampered config or binaries. SHA-256 per regular file + Merkle root; symlinks recorded, not followed; size caps bound growth |
 
 ### 4.3 What is deliberately not captured
 
@@ -358,11 +359,18 @@ only when an audit bundle leaves the operator's premises.
 | `firewall` (v0.4) | `backend`, `ruleset_hash`, `rules` | Backend enum, opaque SHA-256 ruleset hash, rule count | (not Cat B) |
 | `firewall.rule_list[].rule` (v0.5) | full rule text | Embeds IPs / CIDRs / ports | `--redact-network` (whole-rule hashed, sudoers-style) |
 | `firewall.rule_list[].table`, `.chain` (v0.5) | table / chain names | Structural location, not an identifier | (not Cat B) |
+| `filesystem.entries[]` (v0.5) | `path`, `mode`, `uid`, `gid`, `size`, `sha256`, `target` | Filesystem layout + content hashes — like `mounts.mount_point`, not operational identifiers | (not Cat B) |
 
 Operators preparing to send an audit bundle externally should treat the
 above as the surface to review. v0.4 ships `statedrift export
 --redact-network --redact-hostnames` (see §4.6 below); for fields marked
 "not covered" above, manual review remains the only mitigation.
+
+The `filesystem` collector defaults to `/etc` (system config — no Cat B).
+Operators who add identifier-bearing roots to `filesystem.roots` (e.g.
+`/home/<user>`, whose paths embed usernames) should treat those paths as
+"not covered" and review before exporting; the collector does not redact
+paths.
 
 What the bundle does **not** contain (verified by tests in
 `internal/collector/`):
