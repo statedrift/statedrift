@@ -252,6 +252,82 @@ func TestDiffFirewallHashOnlyWhenNoRuleList(t *testing.T) {
 	}
 }
 
+// --- v0.5 Phase Q: world-open signal (R36) ---
+
+func fwWithRules(hash string, rules ...collector.FirewallRule) *collector.Firewall {
+	return &collector.Firewall{
+		Backend: "iptables", RulesetHash: hash, Rules: len(rules), RuleList: rules,
+	}
+}
+
+func TestDiffFirewallWorldOpenSensitivePort(t *testing.T) {
+	base := collector.FirewallRule{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -i lo -j ACCEPT"}
+	old := fwWithRules("aaa", base)
+	new := fwWithRules("bbb", base,
+		collector.FirewallRule{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -p tcp --dport 22 -j ACCEPT"})
+	r := fwResult(old, new)
+	if !hasChange(r, "firewall", "modified", "world_open") {
+		t.Error("expected world_open for an unrestricted ssh ACCEPT")
+	}
+}
+
+func TestDiffFirewallWorldOpenRestrictedSourceNoFire(t *testing.T) {
+	base := collector.FirewallRule{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -i lo -j ACCEPT"}
+	old := fwWithRules("aaa", base)
+	new := fwWithRules("bbb", base,
+		collector.FirewallRule{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -s 10.0.0.0/8 -p tcp --dport 22 -j ACCEPT"})
+	r := fwResult(old, new)
+	if hasChange(r, "firewall", "modified", "world_open") {
+		t.Error("a source-restricted rule must not fire world_open")
+	}
+}
+
+func TestDiffFirewallWorldOpenNonSensitivePortNoFire(t *testing.T) {
+	base := collector.FirewallRule{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -i lo -j ACCEPT"}
+	old := fwWithRules("aaa", base)
+	new := fwWithRules("bbb", base,
+		collector.FirewallRule{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -p tcp --dport 8080 -j ACCEPT"})
+	r := fwResult(old, new)
+	if hasChange(r, "firewall", "modified", "world_open") {
+		t.Error("a non-sensitive port must not fire world_open")
+	}
+}
+
+func TestDiffFirewallWorldOpenWrongChainNoFire(t *testing.T) {
+	base := collector.FirewallRule{Table: "ip4 filter", Chain: "FORWARD", Rule: "-A FORWARD -j DROP"}
+	old := fwWithRules("aaa", base)
+	new := fwWithRules("bbb", base,
+		collector.FirewallRule{Table: "ip4 filter", Chain: "FORWARD", Rule: "-A FORWARD -p tcp --dport 3306 -j ACCEPT"})
+	r := fwResult(old, new)
+	if hasChange(r, "firewall", "modified", "world_open") {
+		t.Error("only INPUT chains should fire world_open")
+	}
+}
+
+func TestDiffFirewallWorldOpenNft(t *testing.T) {
+	base := collector.FirewallRule{Table: "inet filter", Chain: "input", Rule: `iif "lo" accept`}
+	old := fwWithRules("aaa", base)
+	new := fwWithRules("bbb", base,
+		collector.FirewallRule{Table: "inet filter", Chain: "input", Rule: "tcp dport 3389 accept"})
+	r := fwResult(old, new)
+	if !hasChange(r, "firewall", "modified", "world_open") {
+		t.Error("expected world_open for an unrestricted nft rdp accept")
+	}
+}
+
+func TestDiffFirewallWorldOpenOnlyOnAdd(t *testing.T) {
+	// A world-open rule already present in both snapshots (only reordered) is
+	// not a new exposure and must not fire.
+	wo := collector.FirewallRule{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -p tcp --dport 22 -j ACCEPT"}
+	other := collector.FirewallRule{Table: "ip4 filter", Chain: "INPUT", Rule: "-A INPUT -i lo -j ACCEPT"}
+	old := fwWithRules("aaa", wo, other)
+	new := fwWithRules("bbb", other, wo) // same rules, reordered
+	r := fwResult(old, new)
+	if hasChange(r, "firewall", "modified", "world_open") {
+		t.Error("a pre-existing world-open rule must not re-fire on reorder")
+	}
+}
+
 func TestDiffFirewallNilTransitions(t *testing.T) {
 	present := &collector.Firewall{Backend: "nftables", RulesetHash: "aaa", Rules: 10}
 

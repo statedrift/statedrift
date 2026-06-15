@@ -34,6 +34,15 @@ per-file tree for content / permission / ownership drift.
   deterministic truncation. The collector and its diff are free; paths and
   hashes are not Category B, so the section is not redacted (see
   `docs/DESIGN.md` §4.5).
+- **Phase Q — anomaly rules R34–R36 (free).** Three security rules over the
+  Phase O/P data. The diff emits bare, path-free synthetic signal keys (like
+  `ruleset_changed`); the rules are thin matchers:
+  - **R34_FS_SETUID_ADDED** (high) — a watched file gained the setuid/setgid
+    bit, or a new setuid/setgid file appeared under a watched root.
+  - **R35_FS_WORLD_WRITABLE** (high) — a watched path became world-writable
+    (others-write) without the sticky bit. Symlinks and sticky dirs are exempt.
+  - **R36_FW_WORLD_OPEN_SENSITIVE** (high) — a new firewall INPUT rule accepts
+    a sensitive port (SSH/RDP/DB/container API/…) from any source.
 
 ### Changed
 

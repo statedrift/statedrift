@@ -91,6 +91,80 @@ func TestDiffFilesystemUnchangedRootShortCircuits(t *testing.T) {
 	}
 }
 
+// --- v0.5 Phase Q: security signals (R34/R35) ---
+
+func TestDiffFilesystemSetuidAdded(t *testing.T) {
+	// A new setuid file appearing.
+	old := tree("h1", file("/etc/a", "-rw-r--r--", "aaa"))
+	new := tree("h2",
+		file("/etc/a", "-rw-r--r--", "aaa"),
+		file("/usr/bin/x", "urwxr-xr-x", "bbb"),
+	)
+	r := fsResult(old, new)
+	if !hasChange(r, "filesystem", "modified", "setuid_added") {
+		t.Error("expected setuid_added signal for the new setuid file")
+	}
+}
+
+func TestDiffFilesystemSetgidGainedOnModify(t *testing.T) {
+	// An existing file gaining the setgid bit.
+	old := &collector.FilesystemTree{RootHash: "h1", Entries: []collector.FileEntry{
+		{Path: "/srv/tool", Mode: "-rwxr-xr-x"},
+	}}
+	new := &collector.FilesystemTree{RootHash: "h2", Entries: []collector.FileEntry{
+		{Path: "/srv/tool", Mode: "grwxr-xr-x"},
+	}}
+	r := fsResult(old, new)
+	if !hasChange(r, "filesystem", "modified", "setuid_added") {
+		t.Error("expected setuid_added when setgid bit is gained")
+	}
+}
+
+func TestDiffFilesystemWorldWritableAdded(t *testing.T) {
+	old := &collector.FilesystemTree{RootHash: "h1", Entries: []collector.FileEntry{
+		{Path: "/etc/x", Mode: "-rw-r--r--"},
+	}}
+	new := &collector.FilesystemTree{RootHash: "h2", Entries: []collector.FileEntry{
+		{Path: "/etc/x", Mode: "-rw-rw-rw-"},
+	}}
+	r := fsResult(old, new)
+	if !hasChange(r, "filesystem", "modified", "world_writable") {
+		t.Error("expected world_writable when others-write is gained")
+	}
+}
+
+func TestDiffFilesystemStickyAndSymlinkNotWorldWritable(t *testing.T) {
+	// A sticky world-writable dir (like /tmp) and a symlink must NOT fire R35.
+	old := tree("h1")
+	new := tree("h2",
+		file("/data/tmp", "dtrwxrwxrwx", ""), // sticky dir
+		collector.FileEntry{Path: "/etc/alt", Mode: "Lrwxrwxrwx", Target: "/x"},
+	)
+	r := fsResult(old, new)
+	if hasChange(r, "filesystem", "modified", "world_writable") {
+		t.Error("sticky dir / symlink must not fire world_writable")
+	}
+}
+
+func TestDiffFilesystemPlainModeChangeNoSecuritySignal(t *testing.T) {
+	// A permission tightening with no setuid/world-writable transition emits
+	// only the readable .mode change — no security signal.
+	old := &collector.FilesystemTree{RootHash: "h1", Entries: []collector.FileEntry{
+		{Path: "/etc/x", Mode: "-rw-r--r--"},
+	}}
+	new := &collector.FilesystemTree{RootHash: "h2", Entries: []collector.FileEntry{
+		{Path: "/etc/x", Mode: "-rw-------"},
+	}}
+	r := fsResult(old, new)
+	if !hasChange(r, "filesystem", "modified", "/etc/x.mode") {
+		t.Error("expected the readable .mode change")
+	}
+	if hasChange(r, "filesystem", "modified", "setuid_added") ||
+		hasChange(r, "filesystem", "modified", "world_writable") {
+		t.Error("a benign perm change must not fire a security signal")
+	}
+}
+
 func TestDiffFilesystemNilTransitions(t *testing.T) {
 	present := tree("h", file("/etc/a", "-rw-r--r--", "aaa"))
 

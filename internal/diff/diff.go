@@ -1238,10 +1238,21 @@ func diffFirewallRules(old, new []collector.FirewallRule, r *Result) {
 					ru, "", false})
 			}
 		}
+		chainName := chain
+		if i := strings.LastIndex(chain, "/"); i >= 0 {
+			chainName = chain[i+1:]
+		}
 		for _, ru := range newRules {
 			if !oldSet[ru] {
 				r.Changes = append(r.Changes, Change{"firewall", "added", chain,
 					"", ru, false})
+				// R36 — a newly-added INPUT rule that exposes a sensitive port
+				// to any source. Bare key (rule text in the value) so a
+				// filepath.Match rule can hit it.
+				if firewallRuleWorldOpen(chainName, ru) {
+					r.Changes = append(r.Changes, Change{"firewall", "modified", "world_open",
+						"", ru, false})
+				}
 			}
 		}
 
@@ -1254,6 +1265,79 @@ func diffFirewallRules(old, new []collector.FirewallRule, r *Result) {
 				strings.Join(oldCommon, " | "), strings.Join(newCommon, " | "), false})
 		}
 	}
+}
+
+// sensitiveFirewallPorts are TCP ports that should not be world-reachable.
+// Exposing any of them to 0.0.0.0/0 is the R36 signal.
+var sensitiveFirewallPorts = map[string]bool{
+	"22":    true, // ssh
+	"23":    true, // telnet
+	"445":   true, // smb
+	"1433":  true, // mssql
+	"3306":  true, // mysql
+	"3389":  true, // rdp
+	"5432":  true, // postgres
+	"6379":  true, // redis
+	"9200":  true, // elasticsearch
+	"11211": true, // memcached
+	"27017": true, // mongodb
+	"2375":  true, // docker (plain)
+	"2376":  true, // docker (tls)
+}
+
+// firewallRuleWorldOpen reports whether an added INPUT rule accepts a sensitive
+// destination port from any source. It is a deliberately conservative string
+// heuristic over canonical iptables/nft rule text — better to miss an exotic
+// rule than to cry wolf. Only inbound (INPUT) chains are considered.
+func firewallRuleWorldOpen(chain, rule string) bool {
+	if !strings.EqualFold(chain, "INPUT") {
+		return false
+	}
+	if !strings.Contains(rule, "-j ACCEPT") && !strings.Contains(rule, " accept") {
+		return false
+	}
+	if !ruleSensitiveDport(rule) {
+		return false
+	}
+	return !ruleHasRestrictedSource(rule)
+}
+
+// ruleSensitiveDport reports whether the rule's destination port (--dport for
+// iptables, dport for nft) is in sensitiveFirewallPorts.
+func ruleSensitiveDport(rule string) bool {
+	fields := strings.Fields(rule)
+	for i, f := range fields {
+		if (f == "--dport" || f == "dport") && i+1 < len(fields) {
+			if sensitiveFirewallPorts[leadingPort(fields[i+1])] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// leadingPort returns the leading integer of a port token, dropping any
+// range/suffix (e.g. "22:23" → "22", "22/tcp" → "22").
+func leadingPort(tok string) string {
+	end := 0
+	for end < len(tok) && tok[end] >= '0' && tok[end] <= '9' {
+		end++
+	}
+	return tok[:end]
+}
+
+// ruleHasRestrictedSource reports whether the rule limits its source to
+// something other than "any". An explicit 0.0.0.0/0 or ::/0 is still "any".
+func ruleHasRestrictedSource(rule string) bool {
+	anyV4 := strings.Contains(rule, "0.0.0.0/0")
+	anyV6 := strings.Contains(rule, "::/0")
+	if strings.Contains(rule, "-s ") && !anyV4 && !anyV6 {
+		return true
+	}
+	if strings.Contains(rule, "saddr") && !anyV4 && !anyV6 {
+		return true
+	}
+	return false
 }
 
 // groupFirewallRules buckets rules by their "<table>/<chain>" key, preserving
