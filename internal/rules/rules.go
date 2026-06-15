@@ -400,6 +400,35 @@ func DefaultRules() []Rule {
 			ChangeType:  "modified",
 			KeyPattern:  "flushed",
 		},
+		// v0.5 Phase Q — anomaly rules over the filesystem tree (Phase P) and
+		// firewall rules (Phase O). All free.
+		{
+			ID:          "R34_FS_SETUID_ADDED",
+			Name:        "Setuid/setgid file appeared",
+			Description: "A watched file gained the setuid or setgid bit, or a new setuid/setgid file appeared under a watched root. Setuid binaries run with the file owner's privileges (often root) regardless of who executes them — a classic privilege-escalation foothold, so an unexpected one is worth immediate review.",
+			Severity:    SeverityHigh,
+			Section:     "filesystem",
+			ChangeType:  "modified",
+			KeyPattern:  "setuid_added",
+		},
+		{
+			ID:          "R35_FS_WORLD_WRITABLE",
+			Name:        "World-writable file appeared",
+			Description: "A watched file or directory became writable by any user (others-write) without the sticky bit, or a new world-writable path appeared under a watched root. Anyone on the host can now overwrite it — a tampering and persistence vector, especially for config files and binaries.",
+			Severity:    SeverityHigh,
+			Section:     "filesystem",
+			ChangeType:  "modified",
+			KeyPattern:  "world_writable",
+		},
+		{
+			ID:          "R36_FW_WORLD_OPEN_SENSITIVE",
+			Name:        "Sensitive port opened to the world",
+			Description: "A new firewall INPUT rule accepts a sensitive service port (SSH, RDP, database, container API, …) from any source address. Exposing these to 0.0.0.0/0 is a common misconfiguration and a frequent breach entry point — worth confirming it was intentional and scoped.",
+			Severity:    SeverityHigh,
+			Section:     "firewall",
+			ChangeType:  "modified",
+			KeyPattern:  "world_open",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",

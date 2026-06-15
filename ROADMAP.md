@@ -37,13 +37,16 @@ Adds rules R14-R25 to the free anomaly engine.
   roots into a per-file tree; diff reports per-file added / removed / modified
   changes)*. Rule-by-rule firewall diff *(delivered — Phase O: the parsed
   ruleset is stored and the diff reports per-chain added / removed / reordered
-  rules)*. Customizable policy rules.
+  rules)*. Smart filesystem/firewall anomaly rules *(delivered — Phase Q:
+  free rules R34–R36 — setuid/setgid added, world-writable path, sensitive
+  port opened to any source)*. Customizable policy rules.
 - **v0.6.0 — Fleet (Pro).** Baseline export / import / compare across
   many hosts. Container runtime state. AI / GPU runtime configuration.
   DPDK, SR-IOV, and other kernel-bypass networking detection.
 
 Versions ship roughly every 4-6 weeks. The free tier always includes
-the core hash chain, all collectors, and rules R01-R25. Pro adds depth,
+the core hash chain, all collectors, and the free anomaly rules
+(R01-R36, excluding the Pro rules R11-R13). Pro adds depth,
 fleet, and custom policy.
 
 ## Out of scope

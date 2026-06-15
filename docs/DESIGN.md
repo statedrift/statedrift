@@ -88,7 +88,8 @@ the hash chain meaningful — non-deterministic output would generate
 spurious diffs that bury real ones.
 
 **Free tier carries the value.** The hash chain, all collectors, the
-diff engine, audit bundles, and rules R01–R25 are free. Paid Pro
+diff engine, audit bundles, and rules R01–R36 (less the Pro rules
+R11–R13) are free. Paid Pro
 features are an additive layer for fleet baselining and customizable
 policy. A single-host operator running statedrift on their personal
 infrastructure should never feel cornered into a paid tier to use it

@@ -3,6 +3,7 @@ package diff
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/statedrift/statedrift/internal/collector"
 )
@@ -55,10 +56,58 @@ func diffFilesystem(old, new *collector.FilesystemTree, r *Result) {
 		case !inOld && inNew:
 			r.Changes = append(r.Changes, Change{"filesystem", "added", path,
 				"", ne.Mode, false})
+			// A newly-appearing privileged/world-writable file is itself the
+			// anomaly — flag it as if the bit was just gained.
+			emitModeSignals(path, "", ne.Mode, r)
 		default:
 			diffFileEntry(path, oe, ne, r)
 		}
 	}
+}
+
+// emitModeSignals emits the bare-key security signals (R34/R35) when newMode
+// carries a setuid/setgid or world-writable bit that oldMode did not. oldMode
+// is "" for a newly-added entry (every bit it has is newly gained). The path
+// travels in the change value, not the key, so a filepath.Match rule can hit
+// the bare key and multiple files aggregate into one finding.
+func emitModeSignals(path, oldMode, newMode string, r *Result) {
+	if isSetuidMode(newMode) && !isSetuidMode(oldMode) {
+		r.Changes = append(r.Changes, Change{"filesystem", "modified", "setuid_added",
+			"", path, false})
+	}
+	if isWorldWritableMode(newMode) && !isWorldWritableMode(oldMode) {
+		r.Changes = append(r.Changes, Change{"filesystem", "modified", "world_writable",
+			"", path, false})
+	}
+}
+
+// isSetuidMode reports whether an os.FileMode string carries the setuid or
+// setgid bit. Lstat renders these as a leading 'u'/'g' before the 9-char perm
+// block; an empty string (no prior entry) has neither.
+func isSetuidMode(mode string) bool {
+	if len(mode) < 9 {
+		return false
+	}
+	prefix := mode[:len(mode)-9]
+	return strings.ContainsAny(prefix, "ug")
+}
+
+// isWorldWritableMode reports whether an os.FileMode string is writable by
+// "others" without the sticky bit, excluding symlinks (whose perms are always
+// rwxrwxrwx and meaningless).
+func isWorldWritableMode(mode string) bool {
+	if len(mode) < 9 {
+		return false
+	}
+	prefix := mode[:len(mode)-9]
+	perm := mode[len(mode)-9:]
+	if strings.ContainsRune(prefix, 'L') { // symlink
+		return false
+	}
+	if strings.ContainsRune(prefix, 't') { // sticky (e.g. /tmp) — not a concern
+		return false
+	}
+	return perm[7] == 'w' // others-write position
 }
 
 // diffFileEntry emits one "modified" change per attribute that differs between
@@ -67,6 +116,9 @@ func diffFileEntry(path string, oe, ne collector.FileEntry, r *Result) {
 	if oe.Mode != ne.Mode {
 		r.Changes = append(r.Changes, Change{"filesystem", "modified", path + ".mode",
 			oe.Mode, ne.Mode, false})
+		// Surface a security-relevant mode transition as a bare-key signal
+		// (R34/R35) in addition to the readable per-file .mode change.
+		emitModeSignals(path, oe.Mode, ne.Mode, r)
 	}
 	if oe.UID != ne.UID {
 		r.Changes = append(r.Changes, Change{"filesystem", "modified", path + ".uid",
