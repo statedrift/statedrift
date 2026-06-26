@@ -7,11 +7,13 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
-## [0.5.0] — Unreleased
+## [0.5.0] — 2026-06-26
 
 v0.5 deepens the diff: firewall moves from "did it change?" to "which rule
-changed?", and a new filesystem collector hashes watched roots into a
-per-file tree for content / permission / ownership drift.
+changed?", a new filesystem collector hashes watched roots into a per-file
+tree for content / permission / ownership drift, and the anomaly engine gains
+both smart filesystem/firewall rules and a customizable value-condition matcher
+for user-authored policy.
 
 ### Added
 
