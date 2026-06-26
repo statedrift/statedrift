@@ -90,6 +90,11 @@ func Compare(old, new *collector.Snapshot) *Result {
 		diffFilesystem(old.Filesystem, new.Filesystem, r)
 	}
 
+	// v0.6 — container inventory.
+	if old.Containers != nil || new.Containers != nil {
+		diffContainers(old.Containers, new.Containers, r)
+	}
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)

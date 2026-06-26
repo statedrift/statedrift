@@ -92,6 +92,18 @@ func FuzzParseIptablesRules(f *testing.F) {
 	})
 }
 
+func FuzzParseCgroupForContainer(f *testing.F) {
+	f.Add("0::/system.slice/docker-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.scope")
+	f.Add("12:devices:/kubepods/besteffort/pod1234-5678/abc")
+	f.Add("0::/user.slice/user-1000.slice/session-3.scope")
+	f.Add("")
+	f.Add(":::::\n::\ngarbage")
+	f.Add("0::/" + strings.Repeat("a", 4096))
+	f.Fuzz(func(t *testing.T, content string) {
+		_, _, _ = parseCgroupForContainer(content)
+	})
+}
+
 func FuzzParseNftablesRules(f *testing.F) {
 	seed := strings.Join([]string{
 		"table inet filter {",

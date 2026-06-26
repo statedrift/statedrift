@@ -42,9 +42,12 @@ Adds rules R14-R25 to the free anomaly engine.
   port opened to any source)*. Customizable policy rules *(delivered — free:
   `rules.json` gains a `match` value-condition matcher — eq/ne/contains/
   prefix/suffix/regex, numeric gt/lt/gte/lte, and changed — over new/old/key)*.
-- **v0.6.0 — Fleet (Pro).** Baseline export / import / compare across
-  many hosts. Container runtime state. AI / GPU runtime configuration.
-  DPDK, SR-IOV, and other kernel-bypass networking detection.
+- **v0.6.0 — Fleet (Pro) + container state (free).** Container runtime state
+  *(delivered — free: opt-in `containers` collector detects running containers
+  from /proc cgroup membership, runtime-agnostic and daemon-free; diff + rules
+  R37/R38 flag a container appearing / disappearing)*. Still planned: baseline
+  export / import / compare across many hosts (Pro), AI / GPU runtime
+  configuration, DPDK / SR-IOV and other kernel-bypass networking detection.
 
 Versions ship roughly every 4-6 weeks. The free tier always includes
 the core hash chain, all collectors, the free anomaly rules

@@ -1749,6 +1749,10 @@ var allWatchSections = []string{
 	"users", "groups", "sudoers", "mounts", "modules",
 	"cron", "timers", "ssh_keys", "mac", "firewall",
 	"cpu", "kernel_counters", "processes", "sockets", "nic_drivers", "connections",
+	// v0.6 containers — cheap cgroup read, and a container appearing/disappearing
+	// is exactly the near-real-time drift watch should catch (unlike the
+	// expensive filesystem hash tree, which is intentionally omitted here).
+	"containers",
 }
 
 func cmdWatch(s *store.Store, cfg *config.Config) {

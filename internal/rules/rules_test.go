@@ -422,6 +422,42 @@ func TestEvaluateR26NotFiredByRSSChange(t *testing.T) {
 	}
 }
 
+// --- v0.6: R37_CONTAINER_STARTED, R38_CONTAINER_STOPPED ---
+
+func TestEvaluateR37ContainerStarted(t *testing.T) {
+	changes := []Change{{Section: "containers", Type: "added", Key: "0123456789ab", NewValue: "docker nginx"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R37_CONTAINER_STARTED") {
+		t.Error("expected R37_CONTAINER_STARTED to fire on containers added")
+	}
+}
+
+func TestEvaluateR38ContainerStopped(t *testing.T) {
+	changes := []Change{{Section: "containers", Type: "removed", Key: "0123456789ab", OldValue: "docker nginx"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R38_CONTAINER_STOPPED") {
+		t.Error("expected R38_CONTAINER_STOPPED to fire on containers removed")
+	}
+}
+
+func TestEvaluateContainerProcessCounterDoesNotFire(t *testing.T) {
+	// A volatile process-count change is a counter and must trigger no rule.
+	changes := []Change{{Section: "containers", Type: "modified", Key: "0123456789ab.processes",
+		OldValue: "2", NewValue: "5", Counter: true}}
+	findings := Evaluate(DefaultRules(), changes, false)
+	if len(findings) != 0 {
+		t.Errorf("counter process-count change should fire no rules, got %+v", findings)
+	}
+}
+
+func TestEvaluateContainerRulesAreFreeTier(t *testing.T) {
+	for _, id := range []string{"R37_CONTAINER_STARTED", "R38_CONTAINER_STOPPED"} {
+		for _, r := range DefaultRules() {
+			if r.ID == id && r.Pro {
+				t.Errorf("%s should be free-tier (Pro=false)", id)
+			}
+		}
+	}
+}
+
 func containsRule(findings []Finding, id string) bool {
 	for _, f := range findings {
 		if f.Rule.ID == id {
