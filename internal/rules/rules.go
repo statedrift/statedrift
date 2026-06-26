@@ -13,6 +13,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 // Severity levels, ordered from most to least severe.
@@ -33,6 +36,28 @@ type Rule struct {
 	ChangeType  string `json:"change_type"` // "added", "removed", "modified", "any"
 	KeyPattern  string `json:"key_pattern"` // glob on Change.Key; "" matches everything
 	Pro         bool   `json:"pro"`         // true = requires Pro license
+
+	// Match is an optional list of value conditions, all of which must hold
+	// for the rule to fire (logical AND). It runs after the Section /
+	// ChangeType / KeyPattern gates and can only narrow a match, never broaden
+	// it. Empty (the default) imposes no value constraint, so rules authored
+	// before this field — and every built-in rule — behave unchanged.
+	Match []Condition `json:"match,omitempty"`
+}
+
+// Condition is a single value test applied to a change. It lets a user-authored
+// policy rule inspect the change's value (not just its section/key), e.g. "fire
+// only when net.ipv4.ip_forward becomes 1".
+type Condition struct {
+	// Field selects the string under test: "new" (default/empty) → NewValue,
+	// "old" → OldValue, "key" → Key.
+	Field string `json:"field"`
+	// Op is the comparison operator. Supported: eq, ne, contains, prefix,
+	// suffix, regex, gt, lt, gte, lte, changed. An unknown operator never
+	// matches (fail-closed, so a typo cannot silently fire a rule).
+	Op string `json:"op"`
+	// Value is the comparand. Ignored by "changed".
+	Value string `json:"value"`
 }
 
 // Finding is a rule that matched one or more changes in a diff.
@@ -126,7 +151,75 @@ func matchesRule(rule Rule, c Change) bool {
 		}
 	}
 
+	// Value conditions (all must hold). Narrows the match only.
+	for _, cond := range rule.Match {
+		if !matchCondition(cond, c) {
+			return false
+		}
+	}
+
 	return true
+}
+
+// matchCondition evaluates a single value condition against a change. An
+// unknown operator, an invalid regex, or a non-numeric operand on a numeric
+// operator all return false (fail-closed).
+func matchCondition(cond Condition, c Change) bool {
+	field := fieldValue(cond.Field, c)
+
+	switch cond.Op {
+	case "eq":
+		return field == cond.Value
+	case "ne":
+		return field != cond.Value
+	case "contains":
+		return strings.Contains(field, cond.Value)
+	case "prefix":
+		return strings.HasPrefix(field, cond.Value)
+	case "suffix":
+		return strings.HasSuffix(field, cond.Value)
+	case "regex":
+		matched, err := regexp.MatchString(cond.Value, field)
+		return err == nil && matched
+	case "gt", "lt", "gte", "lte":
+		return matchNumeric(cond.Op, field, cond.Value)
+	case "changed":
+		return c.OldValue != c.NewValue
+	}
+	return false // unknown operator
+}
+
+// fieldValue returns the change string selected by a condition's Field.
+func fieldValue(field string, c Change) string {
+	switch field {
+	case "old":
+		return c.OldValue
+	case "key":
+		return c.Key
+	default: // "new" or empty
+		return c.NewValue
+	}
+}
+
+// matchNumeric parses both operands as floats and compares them. A non-numeric
+// operand returns false.
+func matchNumeric(op, field, value string) bool {
+	a, err1 := strconv.ParseFloat(field, 64)
+	b, err2 := strconv.ParseFloat(value, 64)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	switch op {
+	case "gt":
+		return a > b
+	case "lt":
+		return a < b
+	case "gte":
+		return a >= b
+	case "lte":
+		return a <= b
+	}
+	return false
 }
 
 func sortFindings(findings []Finding) {
