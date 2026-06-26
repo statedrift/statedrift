@@ -88,7 +88,7 @@ the hash chain meaningful — non-deterministic output would generate
 spurious diffs that bury real ones.
 
 **Free tier carries the value.** The hash chain, all collectors, the
-diff engine, audit bundles, rules R01–R36 (less the Pro rules
+diff engine, audit bundles, rules R01–R38 (less the Pro rules
 R11–R13), and customizable policy rules are free. Paid Pro
 features are an additive layer for fleet baselining and reporting. A
 single-host operator running statedrift on their personal
@@ -825,9 +825,9 @@ The free tier includes:
 - The full hash chain, every collector (always-on and optional),
   `init`, `snap`, `daemon`, `watch`, `log`, `show`, `diff`, `verify`,
   `export`, `gc`, `analyze` itself
-- Anomaly rules R01–R10 and R14–R36 (all rules except the Pro examples
-  R11–R13), covering host state, security signals, and the v0.5
-  filesystem/firewall anomalies
+- Anomaly rules R01–R10 and R14–R38 (all rules except the Pro examples
+  R11–R13), covering host state, security signals, the v0.5
+  filesystem/firewall anomalies, and v0.6 container start/stop
 - Customizable policy rules — user-authored `rules.json` with the full
   `match` value-condition matcher (§7.3)
 - Audit bundles with `verify.sh` and `verify.ps1`

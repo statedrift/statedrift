@@ -7,6 +7,31 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Container runtime collector (free, opt-in).** New `containers` collector
+  records the running container inventory, detected purely from `/proc`
+  cgroup membership — runtime-agnostic (Docker, containerd/CRI, CRI-O, podman)
+  and daemon-free (no `docker.sock`, no extra privilege beyond reading
+  `/proc`). Each container records its short ID, inferred runtime, a
+  representative command, and process count. The diff reports containers
+  `added` / `removed` (the security signal) and runtime/command changes;
+  the volatile process count is a counter. Off by default; enable under
+  `collectors` in the config. Container IDs and command names are not
+  Category B identifiers, so the section is not redacted.
+- **Anomaly rules R37/R38 (free).**
+  - **R37_CONTAINER_STARTED** (medium) — a new container appeared. Containers
+    launched outside a change window are a common foothold for cryptominers,
+    reverse shells, and lateral movement.
+  - **R38_CONTAINER_STOPPED** (low) — a container disappeared.
+- `watch` schedules the `containers` section in its near-real-time loop (cheap
+  cgroup read), so a container appearing is caught between full snapshots. The
+  expensive `filesystem` hash tree remains excluded from `watch` by design.
+
+---
+
 ## [0.5.1] — 2026-06-26
 
 A patch release for a chain-integrity bug in `gc`, plus test hardening.

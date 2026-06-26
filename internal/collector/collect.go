@@ -272,6 +272,15 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	// v0.6 — container inventory from cgroup membership (opt-in).
+	if cfg.Collectors.IsEnabled("containers") {
+		snap.Containers, err = collectContainers()
+		if err != nil {
+			snap.Containers = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("containers: %v", err))
+		}
+	}
+
 	if len(collectorErrors) > 0 {
 		snap.CollectorErrors = collectorErrors
 	}
@@ -506,6 +515,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.Filesystem = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("filesystem: %v", err))
+		}
+	}
+
+	if due["containers"] && cfg.Collectors.IsEnabled("containers") {
+		snap.Containers, err = collectContainers()
+		if err != nil {
+			snap.Containers = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("containers: %v", err))
 		}
 	}
 

@@ -53,6 +53,10 @@ type Snapshot struct {
 	// disabled.
 	Filesystem *FilesystemTree `json:"filesystem,omitempty"`
 
+	// v0.6 — running container inventory derived from /proc cgroup membership.
+	// nil on pre-v0.6 snapshots and when the "containers" collector is disabled.
+	Containers *ContainerInventory `json:"containers,omitempty"`
+
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
 	KernelCounters *KernelCounters      `json:"kernel_counters,omitempty"`
@@ -177,6 +181,24 @@ type Process struct {
 	UTimeTicks uint64 `json:"utime_ticks,omitempty"`
 	STimeTicks uint64 `json:"stime_ticks,omitempty"`
 	StartTicks uint64 `json:"start_ticks,omitempty"`
+}
+
+// ContainerInventory is the set of running containers detected from /proc
+// cgroup membership (v0.6). Daemon-free and runtime-agnostic.
+type ContainerInventory struct {
+	TotalCount int         `json:"total_count"`
+	Containers []Container `json:"containers"` // sorted by ID for canonical output
+}
+
+// Container is one running container, identified by the ID embedded in its
+// processes' cgroup paths. Command is the comm of the lowest-PID process in the
+// container (a stable representative of what it runs). Processes is the live
+// process count — volatile, so the diff treats <id>.processes as a counter.
+type Container struct {
+	ID        string `json:"id"`                // short (12-char) container id
+	Runtime   string `json:"runtime"`           // docker|containerd|cri-o|podman|unknown
+	Command   string `json:"command,omitempty"` // representative process name
+	Processes int    `json:"processes"`
 }
 
 // SocketInventory captures socket counts per process from /proc/net/tcp and /proc/net/udp.

@@ -522,6 +522,23 @@ func DefaultRules() []Rule {
 			ChangeType:  "modified",
 			KeyPattern:  "world_open",
 		},
+		// v0.6 — container runtime inventory (free).
+		{
+			ID:          "R37_CONTAINER_STARTED",
+			Name:        "Container started",
+			Description: "A new container appeared in the running inventory (detected from /proc cgroup membership). Containers launched outside a change window are a common foothold for cryptominers, reverse shells, and lateral movement — worth confirming the image and who started it.",
+			Severity:    SeverityMedium,
+			Section:     "containers",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R38_CONTAINER_STOPPED",
+			Name:        "Container stopped",
+			Description: "A container disappeared from the running inventory. Benign on a normal deploy or scale-down; suspicious if unexplained — an attacker may be tearing down a short-lived payload to cover tracks.",
+			Severity:    SeverityLow,
+			Section:     "containers",
+			ChangeType:  "removed",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",
