@@ -1,7 +1,7 @@
 # Roadmap
 
 The goal: a tamper-evident record of every host change, free for individual
-operators, with an optional Pro tier for fleet baselining and policy.
+operators, with an optional Pro tier for fleet baselining and reporting.
 
 ## Released
 
@@ -39,15 +39,17 @@ Adds rules R14-R25 to the free anomaly engine.
   ruleset is stored and the diff reports per-chain added / removed / reordered
   rules)*. Smart filesystem/firewall anomaly rules *(delivered — Phase Q:
   free rules R34–R36 — setuid/setgid added, world-writable path, sensitive
-  port opened to any source)*. Customizable policy rules.
+  port opened to any source)*. Customizable policy rules *(delivered — free:
+  `rules.json` gains a `match` value-condition matcher — eq/ne/contains/
+  prefix/suffix/regex, numeric gt/lt/gte/lte, and changed — over new/old/key)*.
 - **v0.6.0 — Fleet (Pro).** Baseline export / import / compare across
   many hosts. Container runtime state. AI / GPU runtime configuration.
   DPDK, SR-IOV, and other kernel-bypass networking detection.
 
 Versions ship roughly every 4-6 weeks. The free tier always includes
-the core hash chain, all collectors, and the free anomaly rules
-(R01-R36, excluding the Pro rules R11-R13). Pro adds depth,
-fleet, and custom policy.
+the core hash chain, all collectors, the free anomaly rules
+(R01-R36, excluding the Pro rules R11-R13), and customizable policy
+rules. Pro adds depth, fleet, and reporting.
 
 ## Out of scope
 

@@ -88,10 +88,10 @@ the hash chain meaningful — non-deterministic output would generate
 spurious diffs that bury real ones.
 
 **Free tier carries the value.** The hash chain, all collectors, the
-diff engine, audit bundles, and rules R01–R36 (less the Pro rules
-R11–R13) are free. Paid Pro
-features are an additive layer for fleet baselining and customizable
-policy. A single-host operator running statedrift on their personal
+diff engine, audit bundles, rules R01–R36 (less the Pro rules
+R11–R13), and customizable policy rules are free. Paid Pro
+features are an additive layer for fleet baselining and reporting. A
+single-host operator running statedrift on their personal
 infrastructure should never feel cornered into a paid tier to use it
 for its stated purpose.
 
@@ -719,8 +719,8 @@ verbatim for piping into other tools.
 ### 7.3 Anomaly rules
 
 The `internal/rules` package evaluates a static rule set against a diff
-result. A rule is `{ ID, Section, ChangeType, KeyPattern, Severity, Pro }`
-and matches when:
+result. A rule is `{ ID, Section, ChangeType, KeyPattern, Severity, Pro,
+Match }` and matches when:
 
 - `Change.Counter` is false (rules ignore counter increments by design)
 - `Change.Section` has `Rule.Section` as a prefix (so `Rule.Section:
@@ -728,6 +728,31 @@ and matches when:
 - `Change.Type` matches `Rule.ChangeType` (or `Rule.ChangeType` is `"any"`)
 - `Change.Key` matches `Rule.KeyPattern` (filepath glob; empty matches
   everything)
+- every condition in `Rule.Match` holds (logical AND; empty imposes no
+  value constraint)
+
+#### Value conditions (`match`)
+
+The structural gates above match on section / type / key but cannot inspect
+the changed *value*. `Match` is an optional list of `{ Field, Op, Value }`
+conditions for that. It runs after the structural gates and can only narrow
+a match (a matching value never rescues a rule whose section/type/key gate
+already failed). `Field` selects the string under test — `new` (default) /
+`old` / `key`. `Op` is one of:
+
+| Op | Meaning |
+|---|---|
+| `eq` / `ne` | exact string (in)equality |
+| `contains` / `prefix` / `suffix` | substring tests |
+| `regex` | `regexp.MatchString(value, field)` |
+| `gt` / `lt` / `gte` / `lte` | numeric compare (both operands parsed as floats) |
+| `changed` | `OldValue != NewValue` (value ignored) |
+
+Everything fails closed: an unknown operator, a malformed regex, or a
+non-numeric operand on a numeric operator yields no match, so a typo can
+never silently fire a rule. This makes custom policy rules expressive
+(e.g. fire only when `net.ipv4.ip_forward` becomes `1`) while keeping the
+matcher a flat, dependency-free comparison rather than an expression DSL.
 
 Rules R01–R10 (v0.2) cover host-level operational changes: new listening
 port, package added/removed/upgraded, service state change, kernel param
@@ -744,7 +769,9 @@ RSS growth, new high-socket-count process.
 User-supplied rules in `/etc/statedrift/rules.json` (or a path passed to
 `analyze --rules`) are merged with the defaults; matching IDs override.
 This keeps the default set conservative and lets operators opt into
-stricter posture without forking the binary.
+stricter posture without forking the binary. Custom rules — including the
+`match` value conditions above — are a free-tier capability; authoring
+policy never requires a Pro license.
 
 ---
 
@@ -798,18 +825,20 @@ The free tier includes:
 - The full hash chain, every collector (always-on and optional),
   `init`, `snap`, `daemon`, `watch`, `log`, `show`, `diff`, `verify`,
   `export`, `gc`, `analyze` itself
-- Anomaly rules R01–R10 and R14–R25 (twenty-three rules covering host
-  state and security signals)
+- Anomaly rules R01–R10 and R14–R36 (all rules except the Pro examples
+  R11–R13), covering host state, security signals, and the v0.5
+  filesystem/firewall anomalies
+- Customizable policy rules — user-authored `rules.json` with the full
+  `match` value-condition matcher (§7.3)
 - Audit bundles with `verify.sh` and `verify.ps1`
 
 A single-host operator running statedrift to record their own
 infrastructure never hits a Pro gate.
 
-The Pro tier is an additive layer for fleet baselining and customizable
-policy. Pro rules R11–R13 are examples included in the binary; they
-require a valid license to evaluate (otherwise silently skipped).
-Future Pro features sit in this same layer and use the same gating
-mechanism.
+The Pro tier is an additive layer for fleet baselining and reporting. Pro
+rules R11–R13 are examples included in the binary; they require a valid
+license to evaluate (otherwise silently skipped). Future Pro features sit
+in this same layer and use the same gating mechanism.
 
 ### 9.1 License verification mechanism
 

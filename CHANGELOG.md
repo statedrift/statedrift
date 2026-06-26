@@ -43,6 +43,16 @@ per-file tree for content / permission / ownership drift.
     (others-write) without the sticky bit. Symlinks and sticky dirs are exempt.
   - **R36_FW_WORLD_OPEN_SENSITIVE** (high) — a new firewall INPUT rule accepts
     a sensitive port (SSH/RDP/DB/container API/…) from any source.
+- **Customizable policy rules (free).** Rules in `rules.json` gain an optional
+  `match` field: a list of value conditions (all ANDed) that inspect the
+  change's value, not just its section/key. Operators: `eq` / `ne` /
+  `contains` / `prefix` / `suffix` / `regex`, numeric `gt` / `lt` / `gte` /
+  `lte`, and `changed`; `field` selects `new` (default) / `old` / `key`. This
+  lets operators author precise policies like "fire when `net.ipv4.ip_forward`
+  becomes `1`" or "fire when a numeric value exceeds a threshold". Fully
+  backward-compatible — a rule with no `match` (and every built-in rule)
+  behaves exactly as before. Unknown operators, bad regexes, and non-numeric
+  operands fail closed (no match), so a typo cannot silently fire a rule.
 
 ### Changed
 
