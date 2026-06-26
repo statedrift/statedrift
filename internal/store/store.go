@@ -306,16 +306,37 @@ func (s *Store) GC(retentionDays int) (GCResult, error) {
 		}
 	}
 
-	// Re-link chain: oldest remaining snapshot gets prev_hash = GenesisHash.
+	// Re-link the kept chain into a valid, genesis-rooted hash chain. Re-rooting
+	// the oldest survivor (prev_hash → GenesisHash) changes its hash, which
+	// cascades to every later survivor (their prev_hash referenced the old
+	// value), so we walk the kept set in order, rewriting each snapshot whose
+	// prev_hash changed and recomputing hashes as we go. Finally we refresh the
+	// head pointer to the new head, since its hash changed too — otherwise the
+	// next Save would chain from a stale hash and break verification.
 	if len(toKeep) > 0 {
-		oldest := toKeep[0]
-		oldest.Snapshot.PrevHash = hasher.GenesisHash
-		data, err := json.MarshalIndent(oldest.Snapshot, "", "  ")
-		if err != nil {
-			return GCResult{}, fmt.Errorf("marshaling snapshot: %w", err)
+		prev := hasher.GenesisHash
+		var headHash string
+		for i := range toKeep {
+			e := toKeep[i]
+			if e.Snapshot.PrevHash != prev {
+				e.Snapshot.PrevHash = prev
+				data, err := json.MarshalIndent(e.Snapshot, "", "  ")
+				if err != nil {
+					return GCResult{}, fmt.Errorf("marshaling snapshot: %w", err)
+				}
+				if err := writeFileAtomic(e.Path, data, 0644); err != nil {
+					return GCResult{}, fmt.Errorf("rewriting snapshot: %w", err)
+				}
+			}
+			h, err := hasher.Hash(e.Snapshot)
+			if err != nil {
+				return GCResult{}, fmt.Errorf("hashing snapshot: %w", err)
+			}
+			prev = h
+			headHash = h
 		}
-		if err := writeFileAtomic(oldest.Path, data, 0644); err != nil {
-			return GCResult{}, fmt.Errorf("rewriting oldest snapshot: %w", err)
+		if err := writeFileAtomic(s.HeadFile(), []byte(headHash+"\n"), 0644); err != nil {
+			return GCResult{}, fmt.Errorf("updating head after gc: %w", err)
 		}
 	}
 

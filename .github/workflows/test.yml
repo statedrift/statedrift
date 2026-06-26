@@ -52,8 +52,15 @@ jobs:
       # up in the workflow log. v0.3.0 release checklist item #9 looks
       # for that exact line — if you see "--- SKIP" instead, pwsh fell
       # off the runner and parity isn't being enforced.
+      #
+      # -race builds with the data-race detector (needs cgo, which the
+      # runner's gcc provides; release binaries stay CGO_ENABLED=0). It
+      # guards the concurrent paths — daemon and watch — that statement
+      # coverage alone can't vouch for. The cmd suite runs the binary as
+      # a subprocess, which the detector doesn't instrument, but the
+      # in-process daemon/watch/store tests are covered.
       - name: go test
-        run: go test -v ./...
+        run: go test -race -v ./...
 
   docker-build:
     runs-on: ubuntu-latest
