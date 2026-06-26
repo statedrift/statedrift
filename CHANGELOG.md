@@ -7,7 +7,9 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
-## [Unreleased]
+## [0.5.1] — 2026-06-26
+
+A patch release for a chain-integrity bug in `gc`, plus test hardening.
 
 ### Fixed
 
