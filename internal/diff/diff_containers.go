@@ -3,9 +3,30 @@ package diff
 import (
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/statedrift/statedrift/internal/collector"
 )
+
+// capSysAdmin is the bit position of CAP_SYS_ADMIN. A container whose init
+// process holds it can perform most host-level operations (mount, namespace
+// setup, BPF, …) and is the classic container-escape vector. Docker's default
+// capability set drops it, so its presence flags `--privileged` or an explicit
+// `--cap-add=SYS_ADMIN`.
+const capSysAdmin = 21
+
+// isPrivilegedCaps reports whether an effective-capability hex bitmask includes
+// CAP_SYS_ADMIN. Empty or malformed masks are treated as not privileged.
+func isPrivilegedCaps(capEff string) bool {
+	if capEff == "" {
+		return false
+	}
+	mask, err := strconv.ParseUint(capEff, 16, 64)
+	if err != nil {
+		return false
+	}
+	return mask&(1<<capSysAdmin) != 0
+}
 
 // diffContainers compares two container inventories (v0.6).
 //
@@ -48,6 +69,9 @@ func diffContainers(old, new *collector.ContainerInventory, r *Result) {
 		case !inOld && inNew:
 			r.Changes = append(r.Changes, Change{"containers", "added", id,
 				"", containerSummary(nc), false})
+			// A container that appears already privileged is itself the anomaly
+			// (treat as newly gained).
+			emitPrivilegedSignal("", nc.CapEff, id, r)
 		default:
 			diffContainerEntry(id, oc, nc, r)
 		}
@@ -65,10 +89,29 @@ func diffContainerEntry(id string, oc, nc collector.Container, r *Result) {
 		r.Changes = append(r.Changes, Change{"containers", "modified", id + ".command",
 			oc.Command, nc.Command, false})
 	}
+	if oc.CapEff != nc.CapEff {
+		r.Changes = append(r.Changes, Change{"containers", "modified", id + ".cap_eff",
+			oc.CapEff, nc.CapEff, false})
+		// Surface a transition into a privileged capability set as the bare-key
+		// signal (R39) in addition to the readable .cap_eff change.
+		emitPrivilegedSignal(oc.CapEff, nc.CapEff, id, r)
+	}
 	if oc.Processes != nc.Processes {
 		// Volatile process count — informational, not an anomaly.
 		r.Changes = append(r.Changes, Change{"containers", "modified", id + ".processes",
 			fmt.Sprintf("%d", oc.Processes), fmt.Sprintf("%d", nc.Processes), true})
+	}
+}
+
+// emitPrivilegedSignal emits the bare-key R39 signal when newCap is privileged
+// and oldCap was not. oldCap is "" for a newly-added container (all of its caps
+// are newly gained). The container ID travels in the change value, not the key,
+// so a filepath.Match rule can hit the bare key and multiple containers
+// aggregate into one finding — same pattern as the filesystem setuid signal.
+func emitPrivilegedSignal(oldCap, newCap, id string, r *Result) {
+	if isPrivilegedCaps(newCap) && !isPrivilegedCaps(oldCap) {
+		r.Changes = append(r.Changes, Change{"containers", "modified", "privileged_container",
+			"", id, false})
 	}
 }
 

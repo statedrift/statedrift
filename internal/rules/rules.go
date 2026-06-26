@@ -539,6 +539,15 @@ func DefaultRules() []Rule {
 			Section:     "containers",
 			ChangeType:  "removed",
 		},
+		{
+			ID:          "R39_PRIVILEGED_CONTAINER",
+			Name:        "Privileged container appeared",
+			Description: "A container whose init process holds CAP_SYS_ADMIN appeared, or an existing container gained it. CAP_SYS_ADMIN is dropped by the default container capability set and grants mount, namespace, and BPF operations — the classic container-escape primitive. It is set by `--privileged` or `--cap-add=SYS_ADMIN`, so an unexpected one is high-signal.",
+			Severity:    SeverityHigh,
+			Section:     "containers",
+			ChangeType:  "modified",
+			KeyPattern:  "privileged_container",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",

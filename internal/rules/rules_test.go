@@ -448,8 +448,30 @@ func TestEvaluateContainerProcessCounterDoesNotFire(t *testing.T) {
 	}
 }
 
+func TestEvaluateR39PrivilegedContainer(t *testing.T) {
+	changes := []Change{{Section: "containers", Type: "modified", Key: "privileged_container",
+		NewValue: "0123456789ab"}}
+	findings := Evaluate(DefaultRules(), changes, false)
+	if !containsRule(findings, "R39_PRIVILEGED_CONTAINER") {
+		t.Error("expected R39_PRIVILEGED_CONTAINER to fire on the privileged_container signal")
+	}
+	for _, f := range findings {
+		if f.Rule.ID == "R39_PRIVILEGED_CONTAINER" && f.Rule.Severity != SeverityHigh {
+			t.Errorf("R39 severity = %q, want high", f.Rule.Severity)
+		}
+	}
+}
+
+func TestEvaluateR39DoesNotFireOnPlainAdd(t *testing.T) {
+	// A normal (non-privileged) container add fires R37 but never R39.
+	changes := []Change{{Section: "containers", Type: "added", Key: "0123456789ab", NewValue: "docker x"}}
+	if containsRule(Evaluate(DefaultRules(), changes, false), "R39_PRIVILEGED_CONTAINER") {
+		t.Error("R39 must not fire on a plain container add (only on the privileged_container signal)")
+	}
+}
+
 func TestEvaluateContainerRulesAreFreeTier(t *testing.T) {
-	for _, id := range []string{"R37_CONTAINER_STARTED", "R38_CONTAINER_STOPPED"} {
+	for _, id := range []string{"R37_CONTAINER_STARTED", "R38_CONTAINER_STOPPED", "R39_PRIVILEGED_CONTAINER"} {
 		for _, r := range DefaultRules() {
 			if r.ID == id && r.Pro {
 				t.Errorf("%s should be free-tier (Pro=false)", id)

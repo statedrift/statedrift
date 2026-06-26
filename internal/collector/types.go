@@ -195,9 +195,14 @@ type ContainerInventory struct {
 // container (a stable representative of what it runs). Processes is the live
 // process count — volatile, so the diff treats <id>.processes as a counter.
 type Container struct {
-	ID        string `json:"id"`                // short (12-char) container id
-	Runtime   string `json:"runtime"`           // docker|containerd|cri-o|podman|unknown
-	Command   string `json:"command,omitempty"` // representative process name
+	ID      string `json:"id"`                // short (12-char) container id
+	Runtime string `json:"runtime"`           // docker|containerd|cri-o|podman|unknown
+	Command string `json:"command,omitempty"` // representative process name
+	// CapEff is the effective-capability bitmask (hex, as in /proc/[pid]/status)
+	// of the container's representative process. Stored as a raw fact; the diff
+	// derives the "privileged" security signal from it (mirrors how file modes
+	// are stored and setuid is derived at diff time).
+	CapEff    string `json:"cap_eff,omitempty"`
 	Processes int    `json:"processes"`
 }
 
