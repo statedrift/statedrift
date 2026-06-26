@@ -1,4 +1,4 @@
-.PHONY: build build-all clean test test-timing vet install release docker \
+.PHONY: build build-all clean test test-race test-timing vet install release docker \
         test-docker test-docker-v02 test-docker-all test-integration
 
 BINARY  := statedrift
@@ -29,6 +29,13 @@ build-all:
 
 test:
 	go test ./...
+
+# Run the suite under the data-race detector — the same check CI enforces.
+# Needs cgo (the detector is cgo-backed), so it does not honor the project's
+# default CGO_ENABLED=0; the go toolchain enables cgo for the race build
+# automatically when a C compiler is present.
+test-race:
+	go test -race ./...
 
 # Report where test wall-time goes: the slowest individual tests, then the
 # per-package totals. Keeps local test time honest — on a host with many

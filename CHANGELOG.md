@@ -7,6 +7,30 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **`gc` no longer breaks the hash chain when more than one snapshot survives
+  pruning.** GC re-roots the oldest survivor to the genesis hash, which changes
+  that snapshot's hash; previously the later survivors still referenced the
+  pre-rewrite hash, so `verify` reported a broken link at the second survivor,
+  and the unrefreshed `head` pointer meant the next `snap` chained from a hash
+  that no longer existed. GC now re-links the entire surviving tail and updates
+  `head`. Single-survivor pruning was unaffected. Surfaced by the new
+  store error-path tests below.
+
+### Changed
+
+- **Test hardening (no runtime behavior change).** CI and `make test-race` now
+  run the suite under the data-race detector, covering the concurrent `daemon`
+  and `watch` paths. Added fuzz targets for canonical-JSON/hash (idempotency +
+  determinism — the property the tamper-evidence guarantee rests on) and for
+  the eight `/proc` and command-output line parsers (no panic on hostile
+  input). `internal/store` statement coverage rose 56% → 84%.
+
+---
+
 ## [0.5.0] — 2026-06-26
 
 v0.5 deepens the diff: firewall moves from "did it change?" to "which rule
