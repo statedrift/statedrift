@@ -38,6 +38,29 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 - `watch` schedules the `containers` section in its near-real-time loop (cheap
   cgroup read), so a container appearing is caught between full snapshots. The
   expensive `filesystem` hash tree remains excluded from `watch` by design.
+- **GPU / accelerator collector (free, opt-in).** New `gpu` collector records
+  the host's NVIDIA GPU inventory, read purely from the kernel driver's
+  `/proc/driver/nvidia` tree — daemon-free (no `nvidia-smi`, no `os/exec`, no
+  extra privilege). Captures the host driver version and, per GPU, its PCI bus
+  location, model, and video-BIOS (firmware) version. The diff reports GPUs
+  `added` / `removed`, the host `driver_version` change, and per-GPU model /
+  `vbios_version` changes. Off by default; enable under `collectors` in the
+  config. Hosts with no NVIDIA driver loaded simply omit the section. PCI
+  addresses, model names, and version strings are not Category B identifiers,
+  so the section is not redacted (GPU UUID is deliberately not collected).
+- **Anomaly rules R40/R41/R42/R43 (free).**
+  - **R40_GPU_ADDED** (low) — a GPU appeared; GPUs do not hot-add on a stable
+    host, so it signals a hardware or VM-passthrough change.
+  - **R41_GPU_REMOVED** (medium) — a GPU disappeared (fell off the bus / Xid
+    fault, removed, or dropped from a VM's passthrough set), silently degrading
+    AI workloads.
+  - **R42_GPU_DRIVER_CHANGED** (medium) — the NVIDIA driver version changed; a
+    downgrade can reintroduce known-vulnerable driver code.
+  - **R43_GPU_VBIOS_CHANGED** (high) — a GPU's video BIOS changed; a reflash is
+    firmware-level tampering that survives OS reinstalls.
+- `watch` schedules the `gpu` section in its near-real-time loop (a few small
+  `/proc/driver/nvidia` reads), so a GPU dropping off the bus is caught between
+  full snapshots.
 
 ---
 

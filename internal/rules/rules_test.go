@@ -480,6 +480,65 @@ func TestEvaluateContainerRulesAreFreeTier(t *testing.T) {
 	}
 }
 
+// --- v0.6: R40_GPU_ADDED, R41_GPU_REMOVED, R42_GPU_DRIVER_CHANGED, R43_GPU_VBIOS_CHANGED ---
+
+func TestEvaluateR40GPUAdded(t *testing.T) {
+	changes := []Change{{Section: "gpu", Type: "added", Key: "0000:01:00.0", NewValue: "NVIDIA A100"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R40_GPU_ADDED") {
+		t.Error("expected R40_GPU_ADDED to fire on gpu added")
+	}
+}
+
+func TestEvaluateR41GPURemoved(t *testing.T) {
+	changes := []Change{{Section: "gpu", Type: "removed", Key: "0000:01:00.0", OldValue: "NVIDIA A100"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R41_GPU_REMOVED") {
+		t.Error("expected R41_GPU_REMOVED to fire on gpu removed")
+	}
+}
+
+func TestEvaluateR42GPUDriverChanged(t *testing.T) {
+	changes := []Change{{Section: "gpu", Type: "modified", Key: "driver_version",
+		OldValue: "535.129.03", NewValue: "550.54.14"}}
+	if !containsRule(Evaluate(DefaultRules(), changes, false), "R42_GPU_DRIVER_CHANGED") {
+		t.Error("expected R42_GPU_DRIVER_CHANGED to fire on driver_version change")
+	}
+}
+
+func TestEvaluateR43GPUVBIOSChanged(t *testing.T) {
+	changes := []Change{{Section: "gpu", Type: "modified", Key: "0000:01:00.0.vbios_version",
+		OldValue: "92.00.45.00.07", NewValue: "92.00.45.00.09"}}
+	findings := Evaluate(DefaultRules(), changes, false)
+	if !containsRule(findings, "R43_GPU_VBIOS_CHANGED") {
+		t.Error("expected R43_GPU_VBIOS_CHANGED to fire on per-GPU vbios_version change")
+	}
+	for _, f := range findings {
+		if f.Rule.ID == "R43_GPU_VBIOS_CHANGED" && f.Rule.Severity != SeverityHigh {
+			t.Errorf("R43 severity = %q, want high", f.Rule.Severity)
+		}
+	}
+}
+
+func TestEvaluateGPUModelChangeUncovered(t *testing.T) {
+	// A per-GPU model change is informational — no GPU rule should fire on it.
+	changes := []Change{{Section: "gpu", Type: "modified", Key: "0000:01:00.0.model",
+		OldValue: "A100", NewValue: "H100"}}
+	for _, id := range []string{"R40_GPU_ADDED", "R41_GPU_REMOVED", "R42_GPU_DRIVER_CHANGED", "R43_GPU_VBIOS_CHANGED"} {
+		if containsRule(Evaluate(DefaultRules(), changes, false), id) {
+			t.Errorf("%s must not fire on a bare model change", id)
+		}
+	}
+}
+
+func TestEvaluateGPURulesAreFreeTier(t *testing.T) {
+	for _, id := range []string{"R40_GPU_ADDED", "R41_GPU_REMOVED", "R42_GPU_DRIVER_CHANGED", "R43_GPU_VBIOS_CHANGED"} {
+		for _, r := range DefaultRules() {
+			if r.ID == id && r.Pro {
+				t.Errorf("%s should be free-tier (Pro=false)", id)
+			}
+		}
+	}
+}
+
 func containsRule(findings []Finding, id string) bool {
 	for _, f := range findings {
 		if f.Rule.ID == id {

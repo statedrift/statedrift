@@ -48,6 +48,7 @@ type Collectors struct {
 	Connections    bool `json:"connections"`
 	Filesystem     bool `json:"filesystem"`
 	Containers     bool `json:"containers"`
+	GPU            bool `json:"gpu"`
 }
 
 // Filesystem configures the v0.5 Phase P filesystem hash-tree collector
@@ -96,6 +97,8 @@ func (c Collectors) IsEnabled(name string) bool {
 		return c.Filesystem
 	case "containers":
 		return c.Containers
+	case "gpu":
+		return c.GPU
 	}
 	return false
 }
@@ -194,7 +197,7 @@ var knownSectionNames = map[string]bool{
 	"cron": true, "timers": true, "ssh_keys": true, "mac": true, "firewall": true,
 	"cpu": true, "kernel_counters": true, "processes": true,
 	"sockets": true, "nic_drivers": true, "connections": true,
-	"filesystem": true, "containers": true,
+	"filesystem": true, "containers": true, "gpu": true,
 }
 
 // SectionInterval returns the effective collection interval for a named section.

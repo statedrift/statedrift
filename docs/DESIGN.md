@@ -255,6 +255,8 @@ which keeps cross-version chains valid for the lifetime of the project.
 | **mac** (v0.4) | `/sys/fs/selinux`, `/etc/selinux/config`, `/sys/kernel/security/apparmor` | MAC disable/downgrade removes an exploit-containment layer; runtime-vs-config drift |
 | **firewall** (v0.4 hash, v0.5 rules) | `nft list ruleset`, `iptables-save` | Ruleset change/flush opens exposure; v0.5 stores the parsed rules for per-rule diff (rules embed IPs/ports — Cat B, redacted at export) |
 | **filesystem** (v0.5, opt-in) | `WalkDir` over configured roots (default `/etc`) | Per-file content/permission/ownership drift; tampered config or binaries. SHA-256 per regular file + Merkle root; symlinks recorded, not followed; size caps bound growth |
+| **containers** (v0.6, opt-in) | `/proc/[pid]/cgroup` membership | Running-container inventory; runtime-agnostic, daemon-free. Per-container id/runtime/command/process-count + `cap_eff` for privileged-container detection |
+| **gpu** (v0.6, opt-in) | `/proc/driver/nvidia` (version + `gpus/<bus>/information`) | NVIDIA GPU/accelerator inventory; daemon-free (no `nvidia-smi`). Driver version + per-GPU PCI bus / model / VBIOS — driver, firmware, and hardware drift |
 
 ### 4.3 What is deliberately not captured
 
@@ -361,6 +363,8 @@ only when an audit bundle leaves the operator's premises.
 | `firewall.rule_list[].rule` (v0.5) | full rule text | Embeds IPs / CIDRs / ports | `--redact-network` (whole-rule hashed, sudoers-style) |
 | `firewall.rule_list[].table`, `.chain` (v0.5) | table / chain names | Structural location, not an identifier | (not Cat B) |
 | `filesystem.entries[]` (v0.5) | `path`, `mode`, `uid`, `gid`, `size`, `sha256`, `target` | Filesystem layout + content hashes — like `mounts.mount_point`, not operational identifiers | (not Cat B) |
+| `containers[]` (v0.6) | `id`, `runtime`, `command`, `cap_eff` | Short container id, runtime enum, process name, capability bitmask — not personal/network identifiers | (not Cat B) |
+| `gpu` (v0.6) | `driver_version`, `bus_location`, `model`, `vbios_version` | PCI address (structural, like a filesystem path), hardware model, and version strings — no IPs/hostnames/users. GPU UUID deliberately not collected | (no Cat B — exempt) |
 
 Operators preparing to send an audit bundle externally should treat the
 above as the surface to review. v0.4 ships `statedrift export

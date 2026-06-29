@@ -95,6 +95,11 @@ func Compare(old, new *collector.Snapshot) *Result {
 		diffContainers(old.Containers, new.Containers, r)
 	}
 
+	// v0.6 — GPU / accelerator inventory.
+	if old.GPU != nil || new.GPU != nil {
+		diffGPU(old.GPU, new.GPU, r)
+	}
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)

@@ -1753,6 +1753,9 @@ var allWatchSections = []string{
 	// is exactly the near-real-time drift watch should catch (unlike the
 	// expensive filesystem hash tree, which is intentionally omitted here).
 	"containers",
+	// v0.6 gpu — a few small /proc/driver/nvidia reads; a GPU dropping off the
+	// bus (Xid) or a driver/VBIOS change is near-real-time drift worth catching.
+	"gpu",
 }
 
 func cmdWatch(s *store.Store, cfg *config.Config) {

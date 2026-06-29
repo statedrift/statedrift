@@ -57,6 +57,11 @@ type Snapshot struct {
 	// nil on pre-v0.6 snapshots and when the "containers" collector is disabled.
 	Containers *ContainerInventory `json:"containers,omitempty"`
 
+	// v0.6 — GPU / accelerator inventory from the NVIDIA driver procfs tree.
+	// nil on pre-v0.6 snapshots, when the "gpu" collector is disabled, or when
+	// no NVIDIA driver is loaded.
+	GPU *GPUInventory `json:"gpu,omitempty"`
+
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
 	KernelCounters *KernelCounters      `json:"kernel_counters,omitempty"`
@@ -204,6 +209,31 @@ type Container struct {
 	// are stored and setuid is derived at diff time).
 	CapEff    string `json:"cap_eff,omitempty"`
 	Processes int    `json:"processes"`
+}
+
+// GPUInventory is the set of GPUs/accelerators detected from the NVIDIA kernel
+// driver's procfs interface (/proc/driver/nvidia) in v0.6. Daemon-free: no
+// nvidia-smi, no os/exec, no extra privilege beyond reading /proc. DriverVersion
+// is host-global (one loaded driver); the per-GPU detail drives the structural
+// diff. nil when the "gpu" collector is disabled or no NVIDIA driver is loaded.
+type GPUInventory struct {
+	DriverVersion string `json:"driver_version,omitempty"`
+	TotalCount    int    `json:"total_count"`
+	GPUs          []GPU  `json:"gpus"` // sorted by bus location for canonical output
+}
+
+// GPU is one accelerator. BusLocation (PCI address, e.g. "0000:01:00.0") is the
+// stable identity key — the diff groups by it. Model is the marketing name;
+// VBIOSVersion is the video-BIOS firmware string, so a reflash is firmware-level
+// drift. None of these is a Category B identifier (hardware model, PCI address,
+// and version strings — like firewall backend or filesystem paths), so the
+// section is not subject to export-time redaction. GPU UUID is deliberately not
+// collected (it is a stable per-device identifier that would pull in Cat B
+// handling; deferred).
+type GPU struct {
+	BusLocation  string `json:"bus_location"`
+	Model        string `json:"model,omitempty"`
+	VBIOSVersion string `json:"vbios_version,omitempty"`
 }
 
 // SocketInventory captures socket counts per process from /proc/net/tcp and /proc/net/udp.
