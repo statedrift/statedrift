@@ -128,6 +128,20 @@ Next free rule ID becomes **R39**.
 `go vet ./...`, `go test -race ./...` green; `gofmt -w .` clean; fuzz seeds
 pass. PR off `feat/v06-container-collector` into `main`. VERSION stays `0.5.1`.
 
+## Follow-up — privileged-container detection (R39, delivered)
+
+The deferred privileged-container signal, built as the next free increment:
+- `Container.CapEff` records the representative process's effective-capability
+  hex bitmask (`/proc/[pid]/status` `CapEff:`) — a stored fact.
+- Diff derives a bare-key `privileged_container` signal (mirrors filesystem
+  setuid) when `isPrivilegedCaps(capEff)` is newly true: CAP_SYS_ADMIN (bit 21)
+  set. Docker's default cap set drops it, so its presence = `--privileged` /
+  `--cap-add=SYS_ADMIN`. Fires on a privileged container appearing OR an
+  existing one gaining it; the readable `<id>.cap_eff` change is also emitted.
+- **R39_PRIVILEGED_CONTAINER** (high), free. **Next free rule ID now R40.**
+- Tests: collector captures CapEff; diff signal on add/gain, none for default
+  caps or already-privileged; R39 fires on the signal, not on a plain add.
+
 ## Progress
 
 - [x] types: ContainerInventory/Container + Snapshot field (omitempty, schema 0.5)

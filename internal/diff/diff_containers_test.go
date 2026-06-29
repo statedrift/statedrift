@@ -87,6 +87,57 @@ func TestDiffContainersCollectorToggle(t *testing.T) {
 	}
 }
 
+const (
+	capDefault    = "00000000a80425fb" // docker default — no CAP_SYS_ADMIN
+	capPrivileged = "0000003fffffffff" // --privileged — includes CAP_SYS_ADMIN
+)
+
+func TestDiffContainersPrivilegedAddedFiresSignal(t *testing.T) {
+	old := ci() // empty inventory → "aaa" is processed as an added container
+	new := ci(collector.Container{ID: "aaa", Runtime: "docker", Command: "x", CapEff: capPrivileged, Processes: 1})
+	r := &Result{}
+	diffContainers(old, new, r)
+	if findChange(r, "containers", "modified", "privileged_container") == nil {
+		t.Error("expected privileged_container signal when a privileged container appears")
+	}
+}
+
+func TestDiffContainersDefaultCapsNoSignal(t *testing.T) {
+	old := ci()
+	new := ci(collector.Container{ID: "aaa", Runtime: "docker", Command: "x", CapEff: capDefault, Processes: 1})
+	r := &Result{}
+	diffContainers(old, new, r)
+	if findChange(r, "containers", "modified", "privileged_container") != nil {
+		t.Error("default (non-privileged) container must not fire the privileged signal")
+	}
+}
+
+func TestDiffContainersGainsPrivilegeFiresSignal(t *testing.T) {
+	old := ci(collector.Container{ID: "aaa", Runtime: "docker", Command: "x", CapEff: capDefault, Processes: 1})
+	new := ci(collector.Container{ID: "aaa", Runtime: "docker", Command: "x", CapEff: capPrivileged, Processes: 1})
+	r := &Result{}
+	diffContainers(old, new, r)
+	if findChange(r, "containers", "modified", "privileged_container") == nil {
+		t.Error("expected privileged_container signal on a container that gains CAP_SYS_ADMIN")
+	}
+	// The readable .cap_eff change should also be present and not a counter.
+	c := findChange(r, "containers", "modified", "aaa.cap_eff")
+	if c == nil || c.Counter {
+		t.Error("expected a real (non-counter) aaa.cap_eff change")
+	}
+}
+
+func TestDiffContainersPrivilegedThroughoutNoSignal(t *testing.T) {
+	// Already privileged in both snapshots — no *new* privilege, no signal.
+	old := ci(collector.Container{ID: "aaa", Runtime: "docker", CapEff: capPrivileged, Processes: 1})
+	new := ci(collector.Container{ID: "aaa", Runtime: "docker", CapEff: capPrivileged, Processes: 2})
+	r := &Result{}
+	diffContainers(old, new, r)
+	if findChange(r, "containers", "modified", "privileged_container") != nil {
+		t.Error("no signal expected when privilege did not newly appear")
+	}
+}
+
 func TestDiffContainersBothNilNoChange(t *testing.T) {
 	r := &Result{}
 	diffContainers(nil, nil, r)

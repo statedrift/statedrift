@@ -109,6 +109,7 @@ func collectContainersFrom(procRoot string) (*ContainerInventory, error) {
 		runtime string
 		minPID  int
 		command string
+		capEff  string
 		count   int
 	}
 	byID := make(map[string]*agg)
@@ -132,10 +133,13 @@ func collectContainersFrom(procRoot string) (*ContainerInventory, error) {
 			byID[id] = a
 		}
 		a.count++
+		// The lowest-PID process is the container's representative (its init);
+		// take both its command and effective capabilities from one status read.
 		if pid <= a.minPID || a.command == "" {
 			a.minPID = pid
-			if comm := readComm(filepath.Join(procRoot, e.Name(), "status")); comm != "" {
+			if comm, capEff := readContainerProc(filepath.Join(procRoot, e.Name(), "status")); comm != "" {
 				a.command = comm
+				a.capEff = capEff
 			}
 		}
 	}
@@ -146,6 +150,7 @@ func collectContainersFrom(procRoot string) (*ContainerInventory, error) {
 			ID:        id,
 			Runtime:   a.runtime,
 			Command:   a.command,
+			CapEff:    a.capEff,
 			Processes: a.count,
 		})
 	}
@@ -155,19 +160,24 @@ func collectContainersFrom(procRoot string) (*ContainerInventory, error) {
 	return inv, nil
 }
 
-// readComm returns the Name field from a /proc/[pid]/status file, or "".
-func readComm(statusPath string) string {
+// readContainerProc returns the Name (comm) and CapEff (effective-capability
+// hex bitmask) fields from a /proc/[pid]/status file. Either may be "" if
+// absent or unreadable.
+func readContainerProc(statusPath string) (comm, capEff string) {
 	f, err := os.Open(statusPath)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer f.Close()
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "Name:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
+		switch {
+		case strings.HasPrefix(line, "Name:"):
+			comm = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
+		case strings.HasPrefix(line, "CapEff:"):
+			capEff = strings.TrimSpace(strings.TrimPrefix(line, "CapEff:"))
 		}
 	}
-	return ""
+	return comm, capEff
 }

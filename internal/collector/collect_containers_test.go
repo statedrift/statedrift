@@ -104,8 +104,9 @@ func TestParseCgroupForContainer(t *testing.T) {
 	}
 }
 
-// writeProc lays down a fake /proc/<pid>/{cgroup,status} pair.
-func writeProc(t *testing.T, root, pid, cgroup, comm string) {
+// writeProc lays down a fake /proc/<pid>/{cgroup,status} pair. capEff is the
+// CapEff hex written into status (empty → line omitted).
+func writeProc(t *testing.T, root, pid, cgroup, comm, capEff string) {
 	t.Helper()
 	dir := filepath.Join(root, pid)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -115,7 +116,11 @@ func writeProc(t *testing.T, root, pid, cgroup, comm string) {
 		t.Fatalf("write cgroup: %v", err)
 	}
 	if comm != "" {
-		if err := os.WriteFile(filepath.Join(dir, "status"), []byte("Name:\t"+comm+"\nState:\tR\n"), 0644); err != nil {
+		status := "Name:\t" + comm + "\nState:\tR\n"
+		if capEff != "" {
+			status += "CapEff:\t" + capEff + "\n"
+		}
+		if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0644); err != nil {
 			t.Fatalf("write status: %v", err)
 		}
 	}
@@ -128,10 +133,10 @@ func TestCollectContainersFromGroupsByID(t *testing.T) {
 
 	// Two PIDs in container A (lower PID 100 is the representative), one in B,
 	// plus a host process that must be ignored.
-	writeProc(t, root, "100", "0::/system.slice/docker-"+idA+".scope", "nginx")
-	writeProc(t, root, "150", "0::/system.slice/docker-"+idA+".scope", "nginx-worker")
-	writeProc(t, root, "200", "0::/system.slice/cri-containerd-"+idB+".scope", "redis-server")
-	writeProc(t, root, "1", "0::/init.scope", "systemd")
+	writeProc(t, root, "100", "0::/system.slice/docker-"+idA+".scope", "nginx", "00000000a80425fb")
+	writeProc(t, root, "150", "0::/system.slice/docker-"+idA+".scope", "nginx-worker", "00000000a80425fb")
+	writeProc(t, root, "200", "0::/system.slice/cri-containerd-"+idB+".scope", "redis-server", "0000003fffffffff")
+	writeProc(t, root, "1", "0::/init.scope", "systemd", "")
 	// A non-PID directory and a stray file must be skipped.
 	if err := os.MkdirAll(filepath.Join(root, "acpi"), 0755); err != nil {
 		t.Fatal(err)
@@ -157,6 +162,9 @@ func TestCollectContainersFromGroupsByID(t *testing.T) {
 	if inv.Containers[0].Command != "nginx" {
 		t.Errorf("container[0].Command = %q, want nginx (lowest PID representative)", inv.Containers[0].Command)
 	}
+	if inv.Containers[0].CapEff != "00000000a80425fb" {
+		t.Errorf("container[0].CapEff = %q, want the lowest-PID init's CapEff", inv.Containers[0].CapEff)
+	}
 	if inv.Containers[1].ID != idB[:12] || inv.Containers[1].Runtime != "containerd" {
 		t.Errorf("container[1] = %+v, want id %q runtime containerd", inv.Containers[1], idB[:12])
 	}
@@ -164,7 +172,7 @@ func TestCollectContainersFromGroupsByID(t *testing.T) {
 
 func TestCollectContainersFromEmpty(t *testing.T) {
 	root := t.TempDir()
-	writeProc(t, root, "1", "0::/init.scope", "systemd")
+	writeProc(t, root, "1", "0::/init.scope", "systemd", "")
 	inv, err := collectContainersFrom(root)
 	if err != nil {
 		t.Fatalf("collectContainersFrom: %v", err)

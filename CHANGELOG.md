@@ -21,11 +21,20 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
   the volatile process count is a counter. Off by default; enable under
   `collectors` in the config. Container IDs and command names are not
   Category B identifiers, so the section is not redacted.
-- **Anomaly rules R37/R38 (free).**
+- **Privileged-container detection.** The container collector records the
+  effective-capability bitmask (`cap_eff`) of each container's representative
+  process. The diff derives a `privileged_container` signal (CAP_SYS_ADMIN
+  present — dropped by the default container cap set, granted by `--privileged`
+  / `--cap-add=SYS_ADMIN`) when a container appears privileged or gains it,
+  mirroring the filesystem setuid signal.
+- **Anomaly rules R37/R38/R39 (free).**
   - **R37_CONTAINER_STARTED** (medium) — a new container appeared. Containers
     launched outside a change window are a common foothold for cryptominers,
     reverse shells, and lateral movement.
   - **R38_CONTAINER_STOPPED** (low) — a container disappeared.
+  - **R39_PRIVILEGED_CONTAINER** (high) — a container holding CAP_SYS_ADMIN
+    appeared or an existing one gained it — the classic container-escape
+    primitive.
 - `watch` schedules the `containers` section in its near-real-time loop (cheap
   cgroup read), so a container appearing is caught between full snapshots. The
   expensive `filesystem` hash tree remains excluded from `watch` by design.
