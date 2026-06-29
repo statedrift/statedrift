@@ -7,7 +7,12 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
-## [Unreleased]
+## [0.6.0] — 2026-06-29
+
+The runtime-drift feature release: three opt-in, free, daemon-free collectors
+that extend tamper-evident snapshotting to container and GPU runtime state, plus
+seven new free anomaly rules (R37–R43). No schema change (0.5) and no Pro
+features — the placeholder license secret is unchanged.
 
 ### Added
 
