@@ -548,6 +548,41 @@ func DefaultRules() []Rule {
 			ChangeType:  "modified",
 			KeyPattern:  "privileged_container",
 		},
+		// v0.6 — GPU / accelerator inventory (free).
+		{
+			ID:          "R40_GPU_ADDED",
+			Name:        "GPU appeared",
+			Description: "A GPU/accelerator appeared in the inventory (read from the NVIDIA driver's /proc interface). GPUs do not hot-add on a stable host, so one appearing means a hardware change or a VM passthrough reconfiguration — worth confirming it was intentional.",
+			Severity:    SeverityLow,
+			Section:     "gpu",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R41_GPU_REMOVED",
+			Name:        "GPU disappeared",
+			Description: "A GPU/accelerator disappeared from the inventory. On AI/ML hosts this is high-signal: the card may have fallen off the PCI bus (Xid/hardware fault), been physically removed, or dropped from a VM's passthrough set — all of which silently degrade or halt workloads.",
+			Severity:    SeverityMedium,
+			Section:     "gpu",
+			ChangeType:  "removed",
+		},
+		{
+			ID:          "R42_GPU_DRIVER_CHANGED",
+			Name:        "GPU driver version changed",
+			Description: "The NVIDIA kernel driver version changed. Benign on a planned upgrade, but a downgrade can reintroduce known-vulnerable driver code and any unscheduled change is worth confirming against the change record.",
+			Severity:    SeverityMedium,
+			Section:     "gpu",
+			ChangeType:  "modified",
+			KeyPattern:  "driver_version",
+		},
+		{
+			ID:          "R43_GPU_VBIOS_CHANGED",
+			Name:        "GPU VBIOS version changed",
+			Description: "A GPU's video BIOS (firmware) version changed. A VBIOS reflash is firmware-level modification — legitimate for an approved vendor update, but also a stealthy persistence vector that survives OS reinstalls. Confirm it matches a sanctioned firmware rollout.",
+			Severity:    SeverityHigh,
+			Section:     "gpu",
+			ChangeType:  "modified",
+			KeyPattern:  "*.vbios_version",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",

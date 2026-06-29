@@ -281,6 +281,15 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	// v0.6 — GPU / accelerator inventory from the NVIDIA driver procfs (opt-in).
+	if cfg.Collectors.IsEnabled("gpu") {
+		snap.GPU, err = collectGPU()
+		if err != nil {
+			snap.GPU = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("gpu: %v", err))
+		}
+	}
+
 	if len(collectorErrors) > 0 {
 		snap.CollectorErrors = collectorErrors
 	}
@@ -523,6 +532,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.Containers = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("containers: %v", err))
+		}
+	}
+
+	if due["gpu"] && cfg.Collectors.IsEnabled("gpu") {
+		snap.GPU, err = collectGPU()
+		if err != nil {
+			snap.GPU = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("gpu: %v", err))
 		}
 	}
 
