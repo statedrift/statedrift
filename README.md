@@ -82,7 +82,7 @@ Every snapshot records:
 | `mac` | SELinux/AppArmor enforcement mode and policy | `/sys/fs/selinux`, `/sys/kernel/security/apparmor` |
 | `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) plus the parsed per-rule list for added/removed/reordered diff (rules embed IPs/ports — redacted by `--redact-network`) | `nft list ruleset`, `iptables-save` |
 
-Optional opt-in collectors (enabled in the `collectors` config block) add CPU / kernel counters / process / socket / NIC-driver inventories and — new in v0.5 — a `filesystem` hash tree. When enabled, `filesystem` walks a configured set of roots (default `/etc`) and records per-file mode, ownership, size, and a SHA-256 content hash plus a Merkle `root_hash`, so the diff reports per-file content / permission / ownership changes. Size caps bound snapshot growth; paths and hashes are not redacted (system config paths, not Category B). New in v0.6, the `containers` collector records the running container inventory from `/proc` cgroup membership — runtime-agnostic (Docker, containerd/CRI, CRI-O, podman) and daemon-free — so the diff flags a container appearing or disappearing (rules R37/R38).
+Optional opt-in collectors (enabled in the `collectors` config block) add CPU / kernel counters / process / socket / NIC-driver inventories and — new in v0.5 — a `filesystem` hash tree. When enabled, `filesystem` walks a configured set of roots (default `/etc`) and records per-file mode, ownership, size, and a SHA-256 content hash plus a Merkle `root_hash`, so the diff reports per-file content / permission / ownership changes. Size caps bound snapshot growth; paths and hashes are not redacted (system config paths, not Category B). New in v0.6, the `containers` collector records the running container inventory from `/proc` cgroup membership — runtime-agnostic (Docker, containerd/CRI, CRI-O, podman) and daemon-free — so the diff flags a container appearing or disappearing (rules R37/R38), or turning privileged (R39). The v0.6 `gpu` collector reads the NVIDIA driver's `/proc` interface for driver/VBIOS/model drift (R40–R43). New in v0.7, the `dataplane` collector reads `/sys` for SR-IOV physical-function VF counts and DPDK-bound NICs (devices handed to a userspace `vfio-pci`/`uio` driver, leaving the kernel stack and its firewall blind to them) — rules R44–R47. All of these are free, opt-in, and daemon-free.
 
 Each snapshot is SHA-256 hash-chained to the previous one. Modifying any snapshot breaks the chain — and `statedrift verify` catches it.
 
@@ -222,6 +222,23 @@ statedrift diff HEAD~1 HEAD --json                   # machine-readable
 ```
 
 Output symbols: `+` added, `-` removed, `~` modified. Counter-type changes (packet counts, etc.) are shown dimmed and excluded from the material-change count.
+
+Changes are grouped by section. For example, between two snapshots where an operator enabled SR-IOV on a NIC, handed one of its Virtual Functions to a userspace DPDK driver, and a second physical NIC appeared, the `dataplane` collector renders:
+
+```
+Comparing 2026-06-29 14:00 → 2026-06-29 14:05
+
+  dataplane.dpdk:
+  + 0000:01:10.0: vfio-pci vf-of 0000:01:00.0
+
+  dataplane.pf:
+  ~ 0000:01:00.0.num_vfs: "0" → "8"
+  + 0000:81:00.0: mlx5_core 0/16 VFs (ens2f1)
+
+3 material changes, 0 counter increments
+```
+
+Here `+ dataplane.dpdk.0000:01:10.0` is the high-signal line: that NIC left the kernel networking stack (and its firewall) for a userspace poll-mode driver — rule **R47** — and `vf-of 0000:01:00.0` shows it is a Virtual Function carved from the PF whose VF count just rose. The VF-count change fires **R46**, and the new physical function fires **R44**.
 
 **Flags:**
 

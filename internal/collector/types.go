@@ -62,6 +62,11 @@ type Snapshot struct {
 	// no NVIDIA driver is loaded.
 	GPU *GPUInventory `json:"gpu,omitempty"`
 
+	// v0.7 — network dataplane wiring (SR-IOV PFs + DPDK-bound NICs) from /sys.
+	// nil on pre-v0.7 snapshots, when the "dataplane" collector is disabled, or
+	// when the host has neither SR-IOV physical functions nor DPDK-bound NICs.
+	Dataplane *NetDataplane `json:"dataplane,omitempty"`
+
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
 	KernelCounters *KernelCounters      `json:"kernel_counters,omitempty"`
@@ -234,6 +239,53 @@ type GPU struct {
 	BusLocation  string `json:"bus_location"`
 	Model        string `json:"model,omitempty"`
 	VBIOSVersion string `json:"vbios_version,omitempty"`
+}
+
+// NetDataplane is the v0.7 network-dataplane inventory: how the host's NICs are
+// wired into the fast path. Two daemon-free facts read from /sys (regular files
+// only): SR-IOV physical functions (PFs that expose Virtual Functions) and
+// DPDK-bound devices (network PCI devices handed to a userspace poll-mode driver,
+// so the kernel netdev — and its firewall — no longer sees them). nil when the
+// "dataplane" collector is disabled or the host has neither.
+//
+// None of the fields (PCI addresses, driver names, kernel netdev names, VF
+// counts) is a Category B identifier — same call as the gpu section — so this
+// section is not subject to export-time redaction.
+type NetDataplane struct {
+	PFs         []SRIOVPF    `json:"pfs"`          // SR-IOV physical functions, sorted by pci_address
+	DPDKDevices []DPDKDevice `json:"dpdk_devices"` // network PCI devices bound to a userspace driver, sorted by pci_address
+}
+
+// SRIOVPF is one SR-IOV physical function. PCIAddress (e.g. "0000:01:00.0") is
+// the stable identity key — the diff groups by it. NumVFs is the count of
+// Virtual Functions currently enabled (a real reconfiguration when it changes,
+// not a counter); TotalVFs is the hardware maximum. Interface is the kernel
+// netdev name and Driver its PF kernel driver (e.g. "i40e", "mlx5_core"), both
+// read from .../device/uevent. NumaNode is the NUMA node the card is attached to
+// (-1 when the host is not NUMA or the attribute is unavailable) — placement
+// locality that matters for dataplane performance; a change implies a topology
+// move.
+type SRIOVPF struct {
+	PCIAddress string `json:"pci_address"`
+	Interface  string `json:"interface,omitempty"`
+	Driver     string `json:"driver,omitempty"`
+	NumVFs     int    `json:"num_vfs"`
+	TotalVFs   int    `json:"total_vfs"`
+	NumaNode   int    `json:"numa_node"`
+}
+
+// DPDKDevice is a network-class PCI device bound to a userspace poll-mode driver
+// (vfio-pci, uio_pci_generic, or igb_uio) instead of its kernel netdev driver.
+// PCIAddress is the identity key. A device appearing here means the kernel
+// networking stack no longer handles it — high-signal when unplanned. PhysFn is
+// the parent PF's PCI address when this device is an SR-IOV Virtual Function
+// (empty for a bare PCI device), so "a slice of PF X went to userspace" is
+// visible at a glance. NumaNode is the card's NUMA node (-1 when not NUMA).
+type DPDKDevice struct {
+	PCIAddress string `json:"pci_address"`
+	Driver     string `json:"driver"`
+	PhysFn     string `json:"phys_fn,omitempty"`
+	NumaNode   int    `json:"numa_node"`
 }
 
 // SocketInventory captures socket counts per process from /proc/net/tcp and /proc/net/udp.

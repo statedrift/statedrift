@@ -257,6 +257,7 @@ which keeps cross-version chains valid for the lifetime of the project.
 | **filesystem** (v0.5, opt-in) | `WalkDir` over configured roots (default `/etc`) | Per-file content/permission/ownership drift; tampered config or binaries. SHA-256 per regular file + Merkle root; symlinks recorded, not followed; size caps bound growth |
 | **containers** (v0.6, opt-in) | `/proc/[pid]/cgroup` membership | Running-container inventory; runtime-agnostic, daemon-free. Per-container id/runtime/command/process-count + `cap_eff` for privileged-container detection |
 | **gpu** (v0.6, opt-in) | `/proc/driver/nvidia` (version + `gpus/<bus>/information`) | NVIDIA GPU/accelerator inventory; daemon-free (no `nvidia-smi`). Driver version + per-GPU PCI bus / model / VBIOS — driver, firmware, and hardware drift |
+| **dataplane** (v0.7, opt-in) | `/sys/class/net/*/device/sriov_*` + `uevent`, `/sys/bus/pci/devices/*` (`class` + `uevent`) | Network-dataplane wiring; daemon-free, regular-file reads only. SR-IOV physical-function VF counts and DPDK-bound NICs (vfio-pci/uio) — a NIC moving to a userspace driver leaves the kernel stack (and its firewall) blind to it |
 
 ### 4.3 What is deliberately not captured
 
@@ -365,6 +366,7 @@ only when an audit bundle leaves the operator's premises.
 | `filesystem.entries[]` (v0.5) | `path`, `mode`, `uid`, `gid`, `size`, `sha256`, `target` | Filesystem layout + content hashes — like `mounts.mount_point`, not operational identifiers | (not Cat B) |
 | `containers[]` (v0.6) | `id`, `runtime`, `command`, `cap_eff` | Short container id, runtime enum, process name, capability bitmask — not personal/network identifiers | (not Cat B) |
 | `gpu` (v0.6) | `driver_version`, `bus_location`, `model`, `vbios_version` | PCI address (structural, like a filesystem path), hardware model, and version strings — no IPs/hostnames/users. GPU UUID deliberately not collected | (no Cat B — exempt) |
+| `dataplane` (v0.7) | `pci_address`, `interface`, `driver`, `num_vfs`, `total_vfs`, `numa_node`, `phys_fn` | PCI addresses (structural — incl. the parent-PF link `phys_fn`), kernel netdev name, driver name, VF counts, NUMA node — no IPs/hostnames/users (kernel-facing names, like `mounts.source`) | (no Cat B — exempt) |
 
 Operators preparing to send an audit bundle externally should treat the
 above as the surface to review. v0.4 ships `statedrift export

@@ -100,6 +100,11 @@ func Compare(old, new *collector.Snapshot) *Result {
 		diffGPU(old.GPU, new.GPU, r)
 	}
 
+	// v0.7 — network dataplane (SR-IOV / DPDK).
+	if old.Dataplane != nil || new.Dataplane != nil {
+		diffDataplane(old.Dataplane, new.Dataplane, r)
+	}
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)

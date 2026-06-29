@@ -201,6 +201,10 @@ Gates the optional collectors added in v0.2. All are off by default (opt-in). Ea
 | `sockets` | `/proc/net/tcp`, `/proc/net/udp` | Socket counts per process |
 | `nic_drivers` | `ethtool -i` | NIC driver and firmware versions |
 | `connections` | `/proc/net/tcp` | Established + SYN_SENT TCP connections with process names |
+| `filesystem` (v0.5) | `WalkDir` over configured roots (default `/etc`) | Per-file mode/uid/gid/size/SHA-256 + Merkle `root_hash`; tuned via the `filesystem` config block below |
+| `containers` (v0.6) | `/proc/[pid]/cgroup` | Running-container inventory (runtime-agnostic, daemon-free) + privileged-container detection |
+| `gpu` (v0.6) | `/proc/driver/nvidia` | NVIDIA GPU/accelerator inventory; driver/VBIOS/model drift (daemon-free) |
+| `dataplane` (v0.7) | `/sys/class/net/*/device`, `/sys/bus/pci/devices` | SR-IOV physical-function VF counts + DPDK-bound NICs (vfio-pci/uio); daemon-free |
 
 Enable everything:
 
@@ -221,6 +225,26 @@ Enable selectively (process and connection tracking without high-churn counters)
 ```
 
 `cpu` and `kernel_counters` produce counter-only diffs (they never trigger material change alerts). They are useful for trend analysis but add noise to `statedrift diff` output. Enable them when you want the full picture; leave them off for alert-focused deployments.
+
+---
+
+### `dataplane`
+
+**Type:** object
+**Default:** `{}` (built-in DPDK drivers only)
+
+Tunes the `dataplane` collector (which must also be enabled in `collectors`).
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `dpdk_drivers` | array of strings | Extra userspace poll-mode driver names to treat as DPDK-bound, **in addition to** the built-in set (`vfio-pci`, `uio_pci_generic`, `igb_uio`). Additive only — listing drivers here can never disable detection of the defaults. Use for vendor or out-of-tree UIO drivers. |
+
+```json
+{
+  "collectors": { "dataplane": true },
+  "dataplane": { "dpdk_drivers": ["mlx_uio", "uio_pci_generic_v2"] }
+}
+```
 
 ---
 
