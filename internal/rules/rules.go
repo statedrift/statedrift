@@ -617,6 +617,21 @@ func DefaultRules() []Rule {
 			Section:     "dataplane.dpdk",
 			ChangeType:  "added",
 		},
+		// v0.7 — kernel-module integrity (free). Complements R17/R18, which only
+		// fire on a module appearing or disappearing. R48 catches the in-place
+		// swap: a module whose name stays loaded but whose backing .ko changed
+		// size — the classic way a rootkit replaces a legitimate module without
+		// tripping a load/unload signal. The diff already emits <module>.size as
+		// a "modified" change; this rule gives it a severity.
+		{
+			ID:          "R48_MODULE_REPLACED",
+			Name:        "Kernel module replaced in place",
+			Description: "A loaded kernel module kept its name but its size changed, meaning the underlying .ko was swapped without an unload/reload. Module code does not change under a stable kernel, so an in-place size change points to a tampered or recompiled module — a rootkit-replacement signal that R17/R18 (load/unload) cannot see.",
+			Severity:    SeverityHigh,
+			Section:     "modules",
+			ChangeType:  "modified",
+			KeyPattern:  "*.size",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",
