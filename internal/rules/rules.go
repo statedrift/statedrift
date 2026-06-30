@@ -583,6 +583,40 @@ func DefaultRules() []Rule {
 			ChangeType:  "modified",
 			KeyPattern:  "*.vbios_version",
 		},
+		// v0.7 — network dataplane (SR-IOV / DPDK) (free).
+		{
+			ID:          "R44_SRIOV_PF_ADDED",
+			Name:        "SR-IOV physical function appeared",
+			Description: "A new SR-IOV physical function appeared in the dataplane inventory. PFs do not hot-add on a stable host, so one appearing means a NIC came online or a VM passthrough reconfiguration — worth confirming it was intentional.",
+			Severity:    SeverityLow,
+			Section:     "dataplane.pf",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R45_SRIOV_PF_REMOVED",
+			Name:        "SR-IOV physical function disappeared",
+			Description: "An SR-IOV physical function disappeared from the dataplane inventory. The NIC may have fallen off the PCI bus (hardware fault), been physically removed, or dropped from a VM's passthrough set — all of which silently degrade or halt fast-path networking.",
+			Severity:    SeverityMedium,
+			Section:     "dataplane.pf",
+			ChangeType:  "removed",
+		},
+		{
+			ID:          "R46_SRIOV_VF_COUNT_CHANGED",
+			Name:        "SR-IOV VF count changed",
+			Description: "The number of enabled SR-IOV Virtual Functions on a physical function changed. Enabling VFs carves a NIC into slices that can be handed directly to VMs or containers, bypassing the host networking stack — a reconfiguration worth confirming against the change record.",
+			Severity:    SeverityMedium,
+			Section:     "dataplane.pf",
+			ChangeType:  "modified",
+			KeyPattern:  "*.num_vfs",
+		},
+		{
+			ID:          "R47_DPDK_DEVICE_BOUND",
+			Name:        "NIC bound to userspace DPDK driver",
+			Description: "A network device was bound to a userspace poll-mode driver (vfio-pci, uio_pci_generic, or igb_uio). The kernel networking stack — and its firewall — no longer sees that NIC, so traffic on it is invisible to host-level controls. Legitimate on a DPDK appliance, high-signal if unplanned.",
+			Severity:    SeverityMedium,
+			Section:     "dataplane.dpdk",
+			ChangeType:  "added",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",

@@ -7,6 +7,38 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Network-dataplane collector (free, opt-in).** New `dataplane` collector
+  records how the host's NICs are wired into the fast path, read entirely from
+  `/sys` regular files (no symlink resolution, no `os/exec`, daemon-free):
+  SR-IOV physical functions (PF PCI address, kernel netdev name, driver, and
+  enabled/total Virtual-Function counts) and DPDK-bound devices (network-class
+  PCI devices handed to a userspace poll-mode driver — `vfio-pci`,
+  `uio_pci_generic`, or `igb_uio`). A host with neither yields a nil section
+  (omitted), not an error. Gated by `collectors.dataplane`; off by default. In
+  the `watch` scheduler (cheap reads). No Category B fields — not redacted at
+  export.
+- **Four new free anomaly rules (R44–R47).** R44 (SR-IOV PF appeared), R45
+  (SR-IOV PF disappeared), R46 (SR-IOV VF count changed), R47 (NIC bound to a
+  userspace DPDK driver — kernel networking and its firewall no longer see it).
+  The diff keys by PCI address under the `dataplane.pf` / `dataplane.dpdk`
+  sub-sections. No schema change (still 0.5); no Pro features.
+- **Configurable DPDK driver set.** New `dataplane.dpdk_drivers` config key lists
+  extra userspace poll-mode driver names to treat as DPDK-bound, additive over
+  the built-in `vfio-pci` / `uio_pci_generic` / `igb_uio` defaults (it can never
+  disable detection of the defaults). For vendor or out-of-tree UIO drivers.
+- **VF→PF linkage and NUMA locality.** A DPDK-bound device that is an SR-IOV
+  Virtual Function now records its parent PF (`phys_fn`, from the `physfn`
+  link) — so "a slice of PF X went to userspace" is visible at a glance and in
+  the diff summary (`vfio-pci vf-of 0000:01:00.0`). Both PFs and DPDK devices
+  also record their `numa_node` (placement locality; `-1` on non-NUMA hosts), so
+  a card moving NUMA nodes surfaces as drift.
+
+---
+
 ## [0.6.0] — 2026-06-29
 
 The runtime-drift feature release: three opt-in, free, daemon-free collectors

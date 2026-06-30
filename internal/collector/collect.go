@@ -290,6 +290,15 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	// v0.7 — network dataplane (SR-IOV / DPDK) from /sys (opt-in).
+	if cfg.Collectors.IsEnabled("dataplane") {
+		snap.Dataplane, err = collectDataplane(cfg.Dataplane.DPDKDrivers)
+		if err != nil {
+			snap.Dataplane = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("dataplane: %v", err))
+		}
+	}
+
 	if len(collectorErrors) > 0 {
 		snap.CollectorErrors = collectorErrors
 	}
@@ -540,6 +549,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.GPU = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("gpu: %v", err))
+		}
+	}
+
+	if due["dataplane"] && cfg.Collectors.IsEnabled("dataplane") {
+		snap.Dataplane, err = collectDataplane(cfg.Dataplane.DPDKDrivers)
+		if err != nil {
+			snap.Dataplane = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("dataplane: %v", err))
 		}
 	}
 

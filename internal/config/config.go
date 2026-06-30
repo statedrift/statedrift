@@ -20,6 +20,7 @@ type Config struct {
 	Ignore           Ignore            `json:"ignore"`
 	Collectors       Collectors        `json:"collectors"`
 	Filesystem       Filesystem        `json:"filesystem"`
+	Dataplane        Dataplane         `json:"dataplane"`
 	LicensePath      string            `json:"license_path"`
 	// DisplayTZ controls CLI output formatting and parsing of operator-typed
 	// dates (--since, --until, --from, --to). Storage timestamps are always
@@ -49,6 +50,7 @@ type Collectors struct {
 	Filesystem     bool `json:"filesystem"`
 	Containers     bool `json:"containers"`
 	GPU            bool `json:"gpu"`
+	Dataplane      bool `json:"dataplane"`
 }
 
 // Filesystem configures the v0.5 Phase P filesystem hash-tree collector
@@ -60,6 +62,16 @@ type Filesystem struct {
 	Excludes    []string `json:"excludes"`
 	MaxFileSize int64    `json:"max_file_size"` // bytes; 0 → FSDefaultMaxFileSize
 	MaxFiles    int      `json:"max_files"`     // 0 → FSDefaultMaxFiles
+}
+
+// Dataplane configures the v0.7 network-dataplane collector (gated by
+// Collectors.Dataplane). DPDKDrivers lists additional userspace poll-mode
+// driver names to treat as DPDK-bound, on top of the built-in defaults
+// (vfio-pci, uio_pci_generic, igb_uio). It is additive — supplying it never
+// disables detection of the standard drivers — for vendor or out-of-tree UIO
+// drivers. Empty (the default) means built-in drivers only.
+type Dataplane struct {
+	DPDKDrivers []string `json:"dpdk_drivers"`
 }
 
 // Filesystem collector defaults, applied when the corresponding field is the
@@ -99,6 +111,8 @@ func (c Collectors) IsEnabled(name string) bool {
 		return c.Containers
 	case "gpu":
 		return c.GPU
+	case "dataplane":
+		return c.Dataplane
 	}
 	return false
 }
@@ -197,7 +211,7 @@ var knownSectionNames = map[string]bool{
 	"cron": true, "timers": true, "ssh_keys": true, "mac": true, "firewall": true,
 	"cpu": true, "kernel_counters": true, "processes": true,
 	"sockets": true, "nic_drivers": true, "connections": true,
-	"filesystem": true, "containers": true, "gpu": true,
+	"filesystem": true, "containers": true, "gpu": true, "dataplane": true,
 }
 
 // SectionInterval returns the effective collection interval for a named section.

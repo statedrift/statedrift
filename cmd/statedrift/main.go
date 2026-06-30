@@ -1756,6 +1756,9 @@ var allWatchSections = []string{
 	// v0.6 gpu — a few small /proc/driver/nvidia reads; a GPU dropping off the
 	// bus (Xid) or a driver/VBIOS change is near-real-time drift worth catching.
 	"gpu",
+	// v0.7 dataplane — cheap /sys reads (SR-IOV VF counts, DPDK driver bindings);
+	// a NIC moving to/from a userspace driver is near-real-time drift worth catching.
+	"dataplane",
 }
 
 func cmdWatch(s *store.Store, cfg *config.Config) {
