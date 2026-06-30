@@ -9,6 +9,16 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+---
+
+## [0.7.0] — 2026-06-30
+
+The dataplane-visibility release: a new opt-in, free, daemon-free `dataplane`
+collector extends tamper-evident snapshotting to how the host's NICs are wired
+into the fast path (SR-IOV physical functions and DPDK-bound devices), plus five
+new free anomaly rules (R44–R48). No schema change (still 0.5) and no Pro
+features — the free tier keeps growing.
+
 ### Added
 
 - **Network-dataplane collector (free, opt-in).** New `dataplane` collector
