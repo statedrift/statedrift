@@ -36,6 +36,12 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
   the diff summary (`vfio-pci vf-of 0000:01:00.0`). Both PFs and DPDK devices
   also record their `numa_node` (placement locality; `-1` on non-NUMA hosts), so
   a card moving NUMA nodes surfaces as drift.
+- **Kernel-module replacement rule (free, R48).** New `R48_MODULE_REPLACED`
+  (high) fires when a loaded kernel module keeps its name but its size changes —
+  an in-place `.ko` swap with no unload/reload. This is the rootkit-replacement
+  case that `R17`/`R18` (load/unload) structurally cannot see; the diff already
+  emitted `<module>.size` as a change, this gives it a severity. No collector or
+  schema change.
 
 ---
 
