@@ -9,6 +9,18 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+---
+
+## [0.8.0] — 2026-06-30
+
+The agent-configuration release: a new opt-in, free, daemon-free `harness`
+collector extends tamper-evident snapshotting from host state to the
+configuration of AI coding/ops agents installed on the host — their tool
+permissions, MCP servers, hooks, and model — treating the agent's own config as
+attack surface. Six new free anomaly rules (R49–R54). Secrets never enter the
+chain (dropped at collect, stored as key names + a redacted fingerprint). No
+schema change (still 0.5) and no Pro features — the free tier keeps growing.
+
 ### Added
 
 - **AI-agent-harness configuration collector (free, opt-in).** New `harness`
