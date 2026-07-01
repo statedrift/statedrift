@@ -105,6 +105,11 @@ func Compare(old, new *collector.Snapshot) *Result {
 		diffDataplane(old.Dataplane, new.Dataplane, r)
 	}
 
+	// v0.8 — AI-agent-harness configuration.
+	if old.Harness != nil || new.Harness != nil {
+		diffHarness(old.Harness, new.Harness, r)
+	}
+
 	// Optional collectors — only diffed when at least one snapshot has the data.
 	if old.CPU != nil || new.CPU != nil {
 		diffCPU(old.CPU, new.CPU, r)

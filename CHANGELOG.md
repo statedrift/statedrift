@@ -9,6 +9,33 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+### Added
+
+- **AI-agent-harness configuration collector (free, opt-in).** New `harness`
+  collector parses the JSON config of coding/ops agents installed on the host
+  (Claude Code's `settings.json` hierarchy and `.mcp.json` in v1) into structured,
+  security-relevant facts: tool `permissions` (allow/deny patterns — the agent's
+  privilege boundary), `mcp_servers` (external endpoints the agent can call),
+  `hooks` (commands the agent runs automatically), and the selected `model`. Read
+  entirely from regular files with the stdlib JSON parser — daemon-free, never
+  talks to a running agent, no `os/exec`. A deliberate scope expansion from host
+  state toward agent-configuration state. Gated by `collectors.harness`; off by
+  default. In the `watch` scheduler (cheap reads).
+- **Secrets never enter the chain.** MCP server `env` values and any credentials
+  embedded in commands/urls are dropped at collect time (Category A policy, like
+  ssh key material and cron commands): the collector stores env *key names* plus a
+  SHA-256 fingerprint computed over the redacted definition, so a wiring change is
+  visible while the secret is never stored in any form. No Category B fields — the
+  section is not subject to export-time redaction.
+- **Six new free anomaly rules (R49–R54).** R49 (agent tool-permission broadened —
+  an allow added or a deny lifted), R50 (MCP server added), R51 (hook added — the
+  agent-layer equivalent of a new cron job), R52 (MCP server reconfigured), R53
+  (hook command changed), R54 (model changed). The diff keys by config file path
+  under the `harness.permissions` / `harness.mcp` / `harness.hooks` /
+  `harness.model` sub-sections. No schema change (still 0.5); no Pro features.
+- **Configurable scan roots.** New `harness.roots` config key lists additional
+  directories to scan for harness config on top of the daemon user's `~/.claude`.
+
 ---
 
 ## [0.7.0] — 2026-06-30

@@ -258,6 +258,7 @@ which keeps cross-version chains valid for the lifetime of the project.
 | **containers** (v0.6, opt-in) | `/proc/[pid]/cgroup` membership | Running-container inventory; runtime-agnostic, daemon-free. Per-container id/runtime/command/process-count + `cap_eff` for privileged-container detection |
 | **gpu** (v0.6, opt-in) | `/proc/driver/nvidia` (version + `gpus/<bus>/information`) | NVIDIA GPU/accelerator inventory; daemon-free (no `nvidia-smi`). Driver version + per-GPU PCI bus / model / VBIOS — driver, firmware, and hardware drift |
 | **dataplane** (v0.7, opt-in) | `/sys/class/net/*/device/sriov_*` + `uevent`, `/sys/bus/pci/devices/*` (`class` + `uevent`) | Network-dataplane wiring; daemon-free, regular-file reads only. SR-IOV physical-function VF counts and DPDK-bound NICs (vfio-pci/uio) — a NIC moving to a userspace driver leaves the kernel stack (and its firewall) blind to it |
+| **harness** (v0.8, opt-in) | `~/.claude/settings.json` (+ `settings.local.json`, `.mcp.json`) and configured roots | AI-agent-harness configuration; daemon-free, stdlib JSON parse of regular files (never talks to a running agent). Tool permissions, MCP servers, hooks, and model — the agent's own config as attack surface. Secrets dropped at collect (env values / embedded credentials → key names + redacted fingerprint) |
 
 ### 4.3 What is deliberately not captured
 
@@ -367,6 +368,7 @@ only when an audit bundle leaves the operator's premises.
 | `containers[]` (v0.6) | `id`, `runtime`, `command`, `cap_eff` | Short container id, runtime enum, process name, capability bitmask — not personal/network identifiers | (not Cat B) |
 | `gpu` (v0.6) | `driver_version`, `bus_location`, `model`, `vbios_version` | PCI address (structural, like a filesystem path), hardware model, and version strings — no IPs/hostnames/users. GPU UUID deliberately not collected | (no Cat B — exempt) |
 | `dataplane` (v0.7) | `pci_address`, `interface`, `driver`, `num_vfs`, `total_vfs`, `numa_node`, `phys_fn` | PCI addresses (structural — incl. the parent-PF link `phys_fn`), kernel netdev name, driver name, VF counts, NUMA node — no IPs/hostnames/users (kernel-facing names, like `mounts.source`) | (no Cat B — exempt) |
+| `harness` (v0.8) | `source`, `tool`, `model`, `permissions` (allow/deny globs), `mcp_servers` (name/transport/`env_keys`/`fingerprint`), `hooks` (event/matcher/`fingerprint`) | Config file paths, tool-permission globs, MCP server names + env variable *names*, and SHA-256 fingerprints — no IPs/hostnames/users. Secret *values* (MCP env values, credentials in commands/urls) are dropped at collect time (Cat A), never stored | (no Cat B — exempt) |
 
 Operators preparing to send an audit bundle externally should treat the
 above as the surface to review. v0.4 ships `statedrift export

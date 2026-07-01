@@ -632,6 +632,59 @@ func DefaultRules() []Rule {
 			ChangeType:  "modified",
 			KeyPattern:  "*.size",
 		},
+		// v0.8 — AI-agent-harness configuration integrity (free). The diff emits
+		// changes under the harness.permissions / harness.mcp / harness.hooks /
+		// harness.model sub-sections; each rule targets one by Section prefix +
+		// ChangeType (no KeyPattern — keys carry file paths and filepath.Match's
+		// `*` does not cross `/`).
+		{
+			ID:          "R49_HARNESS_PERMISSION_BROADENED",
+			Name:        "Agent tool-permission broadened",
+			Description: "An agent harness gained a tool permission — an allow pattern was added or a deny pattern lifted. The permission list is the agent's privilege boundary (its sudoers); broadening it lets the agent run tools or commands it previously could not, so an unplanned widening is high-signal.",
+			Severity:    SeverityHigh,
+			Section:     "harness.permissions",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R50_HARNESS_MCP_SERVER_ADDED",
+			Name:        "Agent MCP server added",
+			Description: "A new MCP (Model Context Protocol) server was added to an agent harness. An MCP server is an external endpoint the agent can call for tools and data — new egress plus new capability — so one appearing outside a change window can indicate a supply-chain or exfiltration path added to the agent.",
+			Severity:    SeverityHigh,
+			Section:     "harness.mcp",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R51_HARNESS_HOOK_ADDED",
+			Name:        "Agent hook added",
+			Description: "A new hook was added to an agent harness. Hooks run a command automatically on an agent event (PreToolUse/PostToolUse/Stop/…), so a hook is persistent code execution — the agent-layer equivalent of a new cron job or systemd timer. An unexpected hook is a common persistence mechanism.",
+			Severity:    SeverityHigh,
+			Section:     "harness.hooks",
+			ChangeType:  "added",
+		},
+		{
+			ID:          "R52_HARNESS_MCP_SERVER_CHANGED",
+			Name:        "Agent MCP server reconfigured",
+			Description: "An existing MCP server's wiring changed — its command, arguments, endpoint URL, transport, or the set of environment-variable names it sets. The change is detected via a redacted fingerprint (secret values never enter the chain), so this flags the server being repointed or its launch command altered.",
+			Severity:    SeverityMedium,
+			Section:     "harness.mcp",
+			ChangeType:  "modified",
+		},
+		{
+			ID:          "R53_HARNESS_HOOK_CHANGED",
+			Name:        "Agent hook command changed",
+			Description: "An existing hook's command changed (same event and matcher, different command fingerprint). Because a hook is auto-executed code, altering what it runs is as security-relevant as adding one — this catches an attacker repurposing an already-trusted hook.",
+			Severity:    SeverityMedium,
+			Section:     "harness.hooks",
+			ChangeType:  "modified",
+		},
+		{
+			ID:          "R54_HARNESS_MODEL_CHANGED",
+			Name:        "Agent model changed",
+			Description: "The model an agent harness is configured to use changed. Lower-signal than a permission or hook change, but a model swap can alter behavior, cost, and the data-egress destination, so it is recorded for the change trail.",
+			Severity:    SeverityLow,
+			Section:     "harness.model",
+			ChangeType:  "modified",
+		},
 		// Pro rules
 		{
 			ID:          "R11_NIC_FIRMWARE_CHANGED",
