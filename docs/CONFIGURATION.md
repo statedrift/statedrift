@@ -205,6 +205,7 @@ Gates the optional collectors added in v0.2. All are off by default (opt-in). Ea
 | `containers` (v0.6) | `/proc/[pid]/cgroup` | Running-container inventory (runtime-agnostic, daemon-free) + privileged-container detection |
 | `gpu` (v0.6) | `/proc/driver/nvidia` | NVIDIA GPU/accelerator inventory; driver/VBIOS/model drift (daemon-free) |
 | `dataplane` (v0.7) | `/sys/class/net/*/device`, `/sys/bus/pci/devices` | SR-IOV physical-function VF counts + DPDK-bound NICs (vfio-pci/uio); daemon-free |
+| `harness` (v0.8) | `~/.claude/*.json` (+ configured roots) | AI-agent-harness config: tool permissions, MCP servers, hooks, model; secrets dropped at collect (daemon-free) |
 
 Enable everything:
 
@@ -243,6 +244,34 @@ Tunes the `dataplane` collector (which must also be enabled in `collectors`).
 {
   "collectors": { "dataplane": true },
   "dataplane": { "dpdk_drivers": ["mlx_uio", "uio_pci_generic_v2"] }
+}
+```
+
+---
+
+### `harness`
+
+**Type:** object
+**Default:** `{}` (scan the daemon user's `~/.claude` only)
+
+Tunes the `harness` collector (which must also be enabled in `collectors`). The
+collector always scans the daemon user's `~/.claude`; `roots` adds more
+directories to scan (each is checked for `settings.json`, `settings.local.json`,
+and `.mcp.json`).
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `roots` | array of strings | Additional directories to scan for harness config, e.g. project `.claude` directories or project roots holding a `.mcp.json`. Additive — the daemon user's `~/.claude` is always scanned. |
+
+Secrets never enter snapshots: MCP server `env` values and credentials embedded
+in commands are dropped at collect time. The collector stores env variable
+*names* plus a SHA-256 fingerprint over the redacted definition, so a wiring
+change is visible while the secret is not stored in any form.
+
+```json
+{
+  "collectors": { "harness": true },
+  "harness": { "roots": ["/srv/app/.claude", "/srv/app"] }
 }
 ```
 

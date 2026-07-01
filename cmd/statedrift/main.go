@@ -1759,6 +1759,10 @@ var allWatchSections = []string{
 	// v0.7 dataplane — cheap /sys reads (SR-IOV VF counts, DPDK driver bindings);
 	// a NIC moving to/from a userspace driver is near-real-time drift worth catching.
 	"dataplane",
+	// v0.8 harness — cheap JSON config reads; a permission broadened, an MCP
+	// server or hook added is exactly the near-real-time agent-config drift watch
+	// should catch.
+	"harness",
 }
 
 func cmdWatch(s *store.Store, cfg *config.Config) {

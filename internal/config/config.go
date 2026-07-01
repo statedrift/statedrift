@@ -21,6 +21,7 @@ type Config struct {
 	Collectors       Collectors        `json:"collectors"`
 	Filesystem       Filesystem        `json:"filesystem"`
 	Dataplane        Dataplane         `json:"dataplane"`
+	Harness          Harness           `json:"harness"`
 	LicensePath      string            `json:"license_path"`
 	// DisplayTZ controls CLI output formatting and parsing of operator-typed
 	// dates (--since, --until, --from, --to). Storage timestamps are always
@@ -51,6 +52,7 @@ type Collectors struct {
 	Containers     bool `json:"containers"`
 	GPU            bool `json:"gpu"`
 	Dataplane      bool `json:"dataplane"`
+	Harness        bool `json:"harness"`
 }
 
 // Filesystem configures the v0.5 Phase P filesystem hash-tree collector
@@ -72,6 +74,16 @@ type Filesystem struct {
 // drivers. Empty (the default) means built-in drivers only.
 type Dataplane struct {
 	DPDKDrivers []string `json:"dpdk_drivers"`
+}
+
+// Harness configures the v0.8 AI-agent-harness collector (gated by
+// Collectors.Harness). Roots lists additional directories to scan for harness
+// config files (settings.json, settings.local.json, .mcp.json) on top of the
+// daemon user's ~/.claude, which is always scanned. Point Roots at project
+// .claude directories (and project roots holding a .mcp.json) that the daemon
+// user should watch. Empty (the default) means ~/.claude only.
+type Harness struct {
+	Roots []string `json:"roots"`
 }
 
 // Filesystem collector defaults, applied when the corresponding field is the
@@ -113,6 +125,8 @@ func (c Collectors) IsEnabled(name string) bool {
 		return c.GPU
 	case "dataplane":
 		return c.Dataplane
+	case "harness":
+		return c.Harness
 	}
 	return false
 }
@@ -212,6 +226,7 @@ var knownSectionNames = map[string]bool{
 	"cpu": true, "kernel_counters": true, "processes": true,
 	"sockets": true, "nic_drivers": true, "connections": true,
 	"filesystem": true, "containers": true, "gpu": true, "dataplane": true,
+	"harness": true,
 }
 
 // SectionInterval returns the effective collection interval for a named section.

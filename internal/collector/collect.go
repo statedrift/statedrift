@@ -299,6 +299,15 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 		}
 	}
 
+	// v0.8 — AI-agent-harness configuration from harness JSON config (opt-in).
+	if cfg.Collectors.IsEnabled("harness") {
+		snap.Harness, err = collectHarness(cfg)
+		if err != nil {
+			snap.Harness = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("harness: %v", err))
+		}
+	}
+
 	if len(collectorErrors) > 0 {
 		snap.CollectorErrors = collectorErrors
 	}
@@ -557,6 +566,14 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.Dataplane = nil
 			collectorErrors = append(collectorErrors, fmt.Sprintf("dataplane: %v", err))
+		}
+	}
+
+	if due["harness"] && cfg.Collectors.IsEnabled("harness") {
+		snap.Harness, err = collectHarness(cfg)
+		if err != nil {
+			snap.Harness = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("harness: %v", err))
 		}
 	}
 

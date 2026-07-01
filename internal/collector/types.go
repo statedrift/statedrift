@@ -67,6 +67,12 @@ type Snapshot struct {
 	// when the host has neither SR-IOV physical functions nor DPDK-bound NICs.
 	Dataplane *NetDataplane `json:"dataplane,omitempty"`
 
+	// v0.8 — AI-agent-harness configuration inventory (permissions, MCP servers,
+	// hooks, model) parsed from harness JSON config files. nil on pre-v0.8
+	// snapshots, when the "harness" collector is disabled, or when no harness
+	// config is discovered.
+	Harness *HarnessInventory `json:"harness,omitempty"`
+
 	// Optional collectors — nil when not enabled in config.
 	CPU            *CPUStats            `json:"cpu,omitempty"`
 	KernelCounters *KernelCounters      `json:"kernel_counters,omitempty"`
@@ -286,6 +292,72 @@ type DPDKDevice struct {
 	Driver     string `json:"driver"`
 	PhysFn     string `json:"phys_fn,omitempty"`
 	NumaNode   int    `json:"numa_node"`
+}
+
+// HarnessInventory is the v0.8 AI-agent-harness configuration inventory: the
+// security-relevant settings of coding/ops agents installed on the host, parsed
+// from their JSON config files (Claude Code's settings.json hierarchy and
+// .mcp.json in v1). Daemon-free — regular file reads only, never talking to a
+// running agent. nil when the "harness" collector is disabled or no harness
+// config is discovered.
+//
+// The agent's own configuration is host attack surface: which tools it may run
+// (permissions), which MCP servers it reaches (egress + new tools), and which
+// hooks fire automatically (persistent code execution). This section maps those
+// onto the same drift primitives statedrift already watches for sudoers, mounts,
+// and cron.
+type HarnessInventory struct {
+	TotalConfigs int             `json:"total_configs"`
+	Configs      []HarnessConfig `json:"configs"` // sorted by Source for canonical output
+}
+
+// HarnessConfig is one parsed harness config file, located by Source (its path,
+// the provenance key — like SudoEntry.Source). Tool names the harness
+// ("claude-code" in v1). Only the security-relevant fields are extracted, never
+// the whole document.
+type HarnessConfig struct {
+	Source      string        `json:"source"`
+	Tool        string        `json:"tool"`
+	Model       string        `json:"model,omitempty"`
+	Permissions HarnessPerms  `json:"permissions"`
+	MCPServers  []HarnessMCP  `json:"mcp_servers,omitempty"` // sorted by Name
+	Hooks       []HarnessHook `json:"hooks,omitempty"`       // sorted by Event, then Matcher, then Fingerprint
+}
+
+// HarnessPerms is the tool-permission boundary: allow/deny patterns (tool globs
+// like "Bash(npm run *)") and the default mode. A broadened allow-list or a
+// lifted deny is a privilege-escalation signal — the sudoers analogue. Allow and
+// Deny are sorted for stable hashing.
+type HarnessPerms struct {
+	DefaultMode string   `json:"default_mode,omitempty"`
+	Allow       []string `json:"allow,omitempty"`
+	Deny        []string `json:"deny,omitempty"`
+}
+
+// HarnessMCP is one configured MCP (Model Context Protocol) server — an external
+// endpoint the agent can call for tools/data, so a new one is new egress plus new
+// capability. Name is the identity key within a config. Transport is
+// stdio/sse/http. EnvKeys is the sorted list of environment variable *names* the
+// server definition sets — values are secrets (API keys) and are NEVER stored.
+// Fingerprint is a SHA-256 over the redacted command/args/url/env-key-names, so a
+// wiring change (new command, new endpoint, added env key) changes it while the
+// secret values themselves never enter the chain in any form.
+type HarnessMCP struct {
+	Name        string   `json:"name"`
+	Transport   string   `json:"transport,omitempty"`
+	EnvKeys     []string `json:"env_keys,omitempty"`
+	Fingerprint string   `json:"fingerprint"`
+}
+
+// HarnessHook is one automatically-fired hook: a command run by the agent on an
+// event (PreToolUse/PostToolUse/Stop/…), optionally scoped by Matcher. This is
+// persistent code execution — the cron/systemd-timer analogue — so a new or
+// changed hook is high-signal. The command can embed credentials, so it is not
+// stored: Fingerprint is a SHA-256 over the redacted command.
+type HarnessHook struct {
+	Event       string `json:"event"`
+	Matcher     string `json:"matcher,omitempty"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 // SocketInventory captures socket counts per process from /proc/net/tcp and /proc/net/udp.
