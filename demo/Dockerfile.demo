@@ -1,0 +1,60 @@
+# Dockerfile.demo — self-contained environment for rendering demo.tape.
+#
+# Stage 1 builds the `statedrift` binary from the veridyn source (stdlib-only,
+# fully static). Stage 2 layers it onto Charm's official VHS image, which
+# already ships vhs + ttyd + ffmpeg + chromium + fonts and runs as root.
+#
+# Build context MUST be the statedrift source repo (the `veridyn` dir), because
+# stage 1 needs go.mod/cmd/internal. run-demo.sh wires this up for you:
+#
+#   docker build -f Dockerfile.demo -t statedrift-demo:latest /path/to/veridyn
+#
+# The tape itself is bind-mounted at run time (see run-demo.sh), so tweaking
+# demo.tape does not require an image rebuild.
+
+# ---- stage 1: build statedrift ----
+FROM golang:1.22-alpine AS builder
+WORKDIR /src
+COPY go.mod ./
+COPY cmd ./cmd
+COPY internal ./internal
+ENV CGO_ENABLED=0 GOOS=linux
+RUN go build -ldflags="-s -w" -o /out/statedrift ./cmd/statedrift
+
+# ---- stage 2: VHS + statedrift ----
+# Base pinned by digest for reproducible re-renders (was :latest). This is
+# Charm's VHS image on Debian 13 (trixie); bump it deliberately when you want a
+# newer base. Reference tag: ghcr.io/charmbracelet/vhs:latest.
+FROM ghcr.io/charmbracelet/vhs@sha256:16b21a3bf7bd13e7fcf60d3ece47c92e561ef594f2c1fca5f1683f11190954b8
+# The tape shells out to sysctl (procps) and useradd/userdel (passwd). The
+# current base already ships them, but install explicitly so a future slimmer
+# base can't silently bake "sysctl: command not found" into the GIF.
+# zsh + zsh-syntax-highlighting drive the tape's on-screen presentation: the
+# line you type is colored by token, so narration and commands read distinctly.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends procps passwd zsh zsh-syntax-highlighting \
+ && rm -rf /var/lib/apt/lists/*
+
+# Presentation config for demo.tape. VHS launches `zsh` with rc files skipped,
+# so this is sourced explicitly from the tape's hidden setup block
+# (`source /etc/statedrift-demo.zsh`) rather than from a global rc.
+RUN cat >/etc/statedrift-demo.zsh <<'ZRC'
+# ── demo.tape presentation ────────────────────────────────────────────────────
+setopt INTERACTIVE_COMMENTS      # let "# ..." narration lines be real comments
+setopt NO_NOMATCH                # a glob with no match shouldn't abort the line
+PROMPT_EOL_MARK=''               # no trailing % marker on partial-line output
+PROMPT='%F{245}$%f '             # muted-grey prompt (chrome, not data)
+
+source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+# Everything you type renders muted grey…
+for _s in default command builtin function alias precommand reserved-word \
+          single-quoted-argument double-quoted-argument dollar-double-quoted-argument; do
+  ZSH_HIGHLIGHT_STYLES[$_s]='fg=245'
+done
+unset _s
+# …except comments, which read as blue narration so the flow is easy to follow.
+ZSH_HIGHLIGHT_STYLES[comment]='fg=75'
+ZRC
+
+COPY --from=builder /out/statedrift /usr/local/bin/statedrift
+# Base image already sets ENTRYPOINT ["/usr/bin/vhs"] and WORKDIR /vhs.

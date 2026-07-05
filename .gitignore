@@ -15,3 +15,6 @@ manual_test_config.txt
 # Claude Code local runtime state (not for the repo)
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# Local render output from demo/run-demo.sh; the published copy is docs/demo.gif
+demo/demo.gif

@@ -1,14 +1,90 @@
 # statedrift
 
-**Git log for your infrastructure.** A tamper-evident agent that continuously snapshots host operational state, so you can diff any two points in time and hand auditors a cryptographically verifiable evidence bundle.
+**Git log for your infrastructure.** A single Go binary that snapshots what your Linux hosts *actually are* — network, packages, services, users, sudoers, kernel modules, mounts, firewall, containers, GPUs, and more — into a tamper-evident hash chain. Diff any two points in time, and hand auditors a cryptographically verifiable evidence bundle.
 
-> v0.2 focuses on host-level operational state with optional collectors for CPU, kernel counters, processes, sockets, and NIC drivers. Future versions expand to security signals, filesystem diff, and fleet baselining — see [ROADMAP.md](ROADMAP.md).
+[![Release](https://img.shields.io/github/v/release/statedrift/statedrift)](https://github.com/statedrift/statedrift/releases/latest)
+[![CI](https://github.com/statedrift/statedrift/actions/workflows/test.yml/badge.svg)](https://github.com/statedrift/statedrift/actions/workflows/test.yml)
+[![License](https://img.shields.io/github/license/statedrift/statedrift)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/statedrift/statedrift/total)](https://github.com/statedrift/statedrift/releases)
+
+Linux · single static binary · no daemon required · no cloud · zero third-party dependencies.
+
+## See it work
+
+![statedrift in action](docs/demo.gif)
+
+<!-- The console transcript below is the accessible / copy-paste fallback for the
+     GIF above; it mirrors the tape's real command output. Re-render both with
+     demo/run-demo.sh (VHS) and keep them in sync. -->
+
+```console
+$ sudo statedrift init
+✓ Store initialized at /var/lib/statedrift/chain
+✓ Genesis snapshot recorded
+✓ Run 'statedrift snap' to take more snapshots.
+
+# ...an hour later, something changed on the box. Snapshot again:
+$ sudo statedrift snap
+✓ Snapshot recorded
+
+# What actually changed?
+$ statedrift diff HEAD~1 HEAD
+Comparing 2026-06-30 14:00 → 2026-06-30 15:00
+
+  kernel_params:
+  ~ net.ipv4.ip_forward: "0" → "1"
+
+  users:
+  + backdoor: uid=1001 gid=1001 shell=/bin/bash
+
+2 material changes, 0 counter increments
+```
+
+Someone turned the host into a router and gave themselves an account — surfaced in plain sight, with a timestamped record of exactly when it happened.
+
+A diff lists *everything* that changed. `analyze` runs the built-in rule engine over that diff and tells you which of those changes are dangerous, and how severe:
+
+```console
+$ statedrift analyze
+statedrift analyze — 2026-06-30T14:00:00Z → 2026-06-30T15:00:00Z
+  2 material changes, 54 rules evaluated
+
+  [HIGH] Kernel parameter changed (1 match)
+    A sysctl value was changed. Security-relevant params (ip_forward, rp_filter) are high severity.
+  [HIGH] New user account (1 match)
+    A new entry was added to /etc/passwd. New accounts created outside a change window may be backdoors.
+
+2 finding(s). Run 'statedrift diff HEAD~1 HEAD' for full details.
+  Pro rules skipped (no license). See 'statedrift help analyze'.
+```
+
+And because every snapshot is SHA-256 hash-chained to the one before it, nobody can quietly rewrite history to cover their tracks — `verify` catches an edited snapshot:
+
+```console
+$ statedrift verify
+Verifying chain integrity...
+  Snapshots:  3
+  Chain:      ✓ all 3 hashes valid
+  Head:       ✓ matches last snapshot
+  Result:     INTEGRITY VERIFIED
+
+No tampering detected. All snapshots are consistent with their recorded hashes.
+
+# ...but if an attacker edits an old snapshot to erase the evidence:
+$ statedrift verify
+Verifying chain integrity...
+  Snapshots:  3
+  Chain:      ✗ BREAK at snapshot #1 (2026-06-30T15:00:00Z)
+              Expected prev_hash: a3f81c2d9e4b5f6a...
+              Found prev_hash:    7c0091a2bd34ef58...
+  Result:     INTEGRITY VIOLATION
+```
 
 ## The problem
 
-During an incident, nobody can agree on what the network config looked like before things broke. During an audit, your team spends weeks gathering screenshots and spreadsheets that auditors don't trust because files can be edited without detection. Configuration drift happens silently, and when you discover it, there's no record of when it started.
+During an incident, nobody can agree on what the config looked like *before* things broke. During an audit, your team burns weeks on screenshots and spreadsheets that auditors don't trust — because files can be edited without a trace. Drift happens silently, and by the time you find it, there's no record of when it started.
 
-Statedrift solves this by recording what your infrastructure actually is — not just what it should be — with a tamper-evident hash chain that makes retroactive edits detectable.
+statedrift records what your infrastructure *actually is* — not what it's supposed to be — in a tamper-evident hash chain that makes retroactive edits detectable.
 
 ## Install
 
@@ -16,37 +92,31 @@ Statedrift solves this by recording what your infrastructure actually is — not
 curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash
 ```
 
-Linux only (amd64 and arm64). Requires `curl` (or `wget`), `tar`, and `sha256sum`. The installer pulls the [latest GitHub release](https://github.com/statedrift/statedrift/releases/latest), verifies its SHA-256 checksum, and installs to `/usr/local/bin`.
+Linux only (amd64 and arm64). Needs `curl` (or `wget`), `tar`, and `sha256sum`. The installer pulls the [latest release](https://github.com/statedrift/statedrift/releases/latest), verifies its SHA-256 checksum, and installs to `/usr/local/bin`.
 
-Pin a specific version, or install to a user-writable prefix without sudo:
+Pin a version, or install without sudo to a user-writable prefix:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash -s -- --version 0.2.0
+curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash -s -- --version 0.8.0
 curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash -s -- --prefix "$HOME/.local/bin"
 ```
 
-To build from source instead:
+Or build from source (Go, no external dependencies):
 
 ```bash
-make build
-sudo cp bin/statedrift /usr/local/bin/
+make build && sudo cp bin/statedrift /usr/local/bin/
 ```
 
-## Quick start
+## Quick start — 60 seconds to your first drift catch
 
 ```bash
-# Initialize the store (takes genesis snapshot)
-sudo statedrift init
-
-# Take a snapshot after making a change
-sudo statedrift snap
-
-# See what changed
-statedrift diff HEAD~1 HEAD
-
-# Verify the entire chain hasn't been tampered with
-statedrift verify
+sudo statedrift init          # record the genesis snapshot (chain root)
+sudo statedrift snap          # ...later, snapshot again after any change
+statedrift diff HEAD~1 HEAD   # see exactly what changed
+statedrift verify             # prove the whole chain is untampered
 ```
+
+That's the loop. Run `snap` on a schedule (cron, or the built-in `statedrift watch`) and you've got a continuous, verifiable record of everything your host is. See [what gets captured](#what-gets-captured) below, or `statedrift --help` for every command.
 
 ### Optional: shell alias
 
@@ -83,6 +153,18 @@ Every snapshot records:
 | `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) plus the parsed per-rule list for added/removed/reordered diff (rules embed IPs/ports — redacted by `--redact-network`) | `nft list ruleset`, `iptables-save` |
 
 Optional opt-in collectors (enabled in the `collectors` config block) add CPU / kernel counters / process / socket / NIC-driver inventories and — new in v0.5 — a `filesystem` hash tree. When enabled, `filesystem` walks a configured set of roots (default `/etc`) and records per-file mode, ownership, size, and a SHA-256 content hash plus a Merkle `root_hash`, so the diff reports per-file content / permission / ownership changes. Size caps bound snapshot growth; paths and hashes are not redacted (system config paths, not Category B). New in v0.6, the `containers` collector records the running container inventory from `/proc` cgroup membership — runtime-agnostic (Docker, containerd/CRI, CRI-O, podman) and daemon-free — so the diff flags a container appearing or disappearing (rules R37/R38), or turning privileged (R39). The v0.6 `gpu` collector reads the NVIDIA driver's `/proc` interface for driver/VBIOS/model drift (R40–R43). New in v0.7, the `dataplane` collector reads `/sys` for SR-IOV physical-function VF counts and DPDK-bound NICs (devices handed to a userspace `vfio-pci`/`uio` driver, leaving the kernel stack and its firewall blind to them) — rules R44–R47. New in v0.8, the `harness` collector parses the JSON config of AI coding/ops agents (Claude Code's `settings.json` and `.mcp.json`) — the agent's own config is attack surface, so the diff flags a broadened tool permission, a new MCP server or hook, or a model change (rules R49–R54); secrets never enter snapshots (env values and embedded credentials are dropped at collect, leaving only key names and a redacted fingerprint). All of these are free, opt-in, and daemon-free.
+
+> **Your AI coding agent's own config is attack surface — statedrift version-controls it.**
+>
+> An agent's permissions, MCP servers, and hooks decide what it's allowed to touch. A silently broadened tool permission or a newly wired-in MCP server is a real privilege change, and nothing else is watching that file. The `harness` collector snapshots it, so the change shows up in the diff and trips a rule:
+>
+> ```console
+> $ statedrift diff HEAD~1 HEAD --section harness
+>   harness.mcp:
+>   + ~/.claude/.mcp.json filesystem: stdio      # a new MCP server was wired in → R50
+> ```
+>
+> Secrets never enter the chain: MCP env values and credentials embedded in commands or URLs are dropped at collect time, leaving only env **key names** and a redacted SHA-256 fingerprint — so rotating a secret doesn't churn the snapshot, but changing the *wiring* does.
 
 Each snapshot is SHA-256 hash-chained to the previous one. Modifying any snapshot breaks the chain — and `statedrift verify` catches it.
 
