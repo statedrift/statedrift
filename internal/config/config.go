@@ -323,14 +323,20 @@ func SaveUserStorePath(storePath string) error {
 		return err
 	}
 
-	// Read existing user config to preserve other fields.
-	cfg := &Config{}
+	// Merge at the raw-JSON level: only store_path is managed here. Marshaling
+	// the whole Config struct would persist zero values ("retention_days": 0,
+	// "interval": "") that override the built-in defaults at load time.
+	raw := map[string]json.RawMessage{}
 	if data, err := os.ReadFile(upath); err == nil {
-		_ = json.Unmarshal(data, cfg) // ignore parse errors — we'll overwrite
+		_ = json.Unmarshal(data, &raw) // ignore parse errors — start fresh
 	}
-	cfg.StorePath = storePath
+	sp, err := json.Marshal(storePath)
+	if err != nil {
+		return err
+	}
+	raw["store_path"] = sp
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return err
 	}

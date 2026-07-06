@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -40,10 +41,21 @@ func TestMain(m *testing.M) {
 
 // sd runs the test binary with the given arguments and a temporary store.
 // It returns stdout, stderr, and the exit code.
+//
+// The child process is fully isolated from the host's configuration:
+// HOME and XDG_CONFIG_HOME point inside the store temp dir (so `init` can
+// never touch the developer's real ~/.config/statedrift/config.json), and
+// STATEDRIFT_CONFIG points at a nonexistent file (so a host
+// /etc/statedrift/config.json cannot leak into test behavior).
 func sd(t *testing.T, store string, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
 	cmd := exec.Command(testBinary, args...)
-	cmd.Env = append(os.Environ(), "STATEDRIFT_STORE="+store)
+	cmd.Env = append(os.Environ(),
+		"STATEDRIFT_STORE="+store,
+		"HOME="+filepath.Join(store, ".home"),
+		"XDG_CONFIG_HOME="+filepath.Join(store, ".xdg"),
+		"STATEDRIFT_CONFIG="+filepath.Join(store, ".no-system-config.json"),
+	)
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -453,5 +465,110 @@ func TestCLIBaselineCheckNoBaselineErrors(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "no baseline pinned") {
 		t.Errorf("expected 'no baseline pinned' message, got:\n%s", errOut)
+	}
+}
+
+// TestCLIUnknownFlagRejected confirms typo'd or nonexistent flags abort with
+// exit 1 instead of being silently ignored (e.g. `snap --json` must not
+// "succeed" with human output).
+func TestCLIUnknownFlagRejected(t *testing.T) {
+	store := initStore(t)
+	cases := [][]string{
+		{"snap", "--json"},
+		{"verify", "--json"},
+		{"log", "--nonsense"},
+		{"diff", "HEAD~1", "HEAD", "--bogus"},
+		{"baseline", "check", "--wat"},
+	}
+	for _, args := range cases {
+		out, errOut, code := sd(t, store, args...)
+		if code != 1 {
+			t.Errorf("%v: expected exit 1 for unknown flag, got %d\nstdout: %s\nstderr: %s",
+				args, code, out, errOut)
+		}
+		if !strings.Contains(errOut, "unknown flag") {
+			t.Errorf("%v: expected 'unknown flag' in stderr, got:\n%s", args, errOut)
+		}
+	}
+}
+
+// TestCLIFlagMissingValueRejected confirms a value-taking flag with no value
+// aborts instead of being silently dropped.
+func TestCLIFlagMissingValueRejected(t *testing.T) {
+	store := initStore(t)
+	_, errOut, code := sd(t, store, "diff", "HEAD~1", "HEAD", "--section")
+	if code != 1 {
+		t.Fatalf("diff --section with no value: expected exit 1, got %d\nstderr: %s", code, errOut)
+	}
+	if !strings.Contains(errOut, "requires a value") {
+		t.Errorf("expected 'requires a value' in stderr, got:\n%s", errOut)
+	}
+}
+
+// TestCLIVersionFlag verifies the --version and -v aliases.
+func TestCLIVersionFlag(t *testing.T) {
+	store := t.TempDir() // no init needed
+	for _, flag := range []string{"--version", "-v", "version"} {
+		out, errOut, code := sd(t, store, flag)
+		if code != 0 {
+			t.Errorf("%s: expected exit 0, got %d\nstderr: %s", flag, code, errOut)
+		}
+		if !strings.Contains(out, "statedrift") {
+			t.Errorf("%s: expected version string, got:\n%s", flag, out)
+		}
+	}
+}
+
+// TestCLISubcommandHelp verifies `statedrift <cmd> --help` prints the same
+// help as `statedrift help <cmd>` and exits 0 (previously `diff --help`
+// parsed --help as a snapshot ref).
+func TestCLISubcommandHelp(t *testing.T) {
+	store := t.TempDir() // no init needed
+	out, errOut, code := sd(t, store, "diff", "--help")
+	if code != 0 {
+		t.Fatalf("diff --help: expected exit 0, got %d\nstderr: %s", code, errOut)
+	}
+	if !strings.Contains(out, "Compare two snapshots") {
+		t.Errorf("diff --help: expected command help, got:\n%s", out)
+	}
+}
+
+// TestCLIShowPrintsHash verifies the human `show` header contains the actual
+// snapshot hash (a pointer-comparison bug used to leave it blank).
+func TestCLIShowPrintsHash(t *testing.T) {
+	store := initStore(t)
+	out, errOut, code := sd(t, store, "show", "HEAD")
+	if code != 0 {
+		t.Fatalf("show HEAD failed (code %d):\nstderr: %s", code, errOut)
+	}
+	m := regexp.MustCompile(`Snapshot [0-9a-f]{16}\.\.\.`).FindString(out)
+	if m == "" {
+		t.Errorf("show HEAD: expected 'Snapshot <16-hex>...' header, got:\n%s", out)
+	}
+}
+
+// TestCLIInitWritesMinimalUserConfig verifies init persists ONLY store_path
+// to the user config. Marshaling the whole config struct used to persist
+// zero values ("retention_days": 0) that override built-in defaults.
+func TestCLIInitWritesMinimalUserConfig(t *testing.T) {
+	store := t.TempDir()
+	if out, errOut, code := sd(t, store, "init"); code != 0 {
+		t.Fatalf("init failed (code %d):\nstdout: %s\nstderr: %s", code, out, errOut)
+	}
+	// sd() points XDG_CONFIG_HOME at <store>/.xdg, so init must write there —
+	// never to the developer's real ~/.config.
+	data, err := os.ReadFile(filepath.Join(store, ".xdg", "statedrift", "config.json"))
+	if err != nil {
+		t.Fatalf("reading isolated user config: %v", err)
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("user config is not valid JSON: %v\n%s", err, data)
+	}
+	if got, ok := m["store_path"]; !ok || got != store {
+		t.Errorf("store_path = %v, want %q", got, store)
+	}
+	if len(m) != 1 {
+		t.Errorf("user config should contain only store_path, got keys: %v", m)
 	}
 }
