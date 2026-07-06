@@ -11,6 +11,62 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ---
 
+## [0.8.1] — 2026-07-06
+
+The polish release: CLI hardening and usability fixes ahead of wider
+promotion. No new collectors, no schema change (still 0.5), no Pro features.
+
+### Added
+
+- **`analyze --fail-on SEVERITY`.** Exit 1 when any finding is at or above
+  the threshold (`low`, `medium`, `high`, `critical`). Without the flag,
+  `analyze` keeps its always-exit-0 behavior, so existing scripts are
+  unaffected. Gives CI pipelines and cron jobs an exit-code contract,
+  mirroring `baseline check`.
+- **`watch --once`.** Run a single snap/diff/alert cycle and exit — for cron
+  jobs where a resident process is not wanted.
+- **`--version` / `-v`** aliases for `version`, and `statedrift <cmd> --help`
+  as an equivalent of `statedrift help <cmd>`.
+- **`gc --days N`** documented; `--days 0` (and `retention_days: 0`) now
+  explains "keep forever" instead of the confusing "older than 0 days".
+
+### Fixed
+
+- **Unknown flags are rejected.** Every command now validates its arguments:
+  unknown flags (`snap --json`, `verify --json`), flags missing a required
+  value (`diff … --section`), and surplus positional arguments exit 1 with a
+  pointer to `statedrift help <cmd>` instead of being silently ignored.
+- **`diff --section` validates the section name.** A typo'd section used to
+  silently print `(no changes)` — a false clean answer. Unknown sections now
+  exit 1 with the valid-list pointer.
+- **`show` printed a blank hash header.** The snapshot's hash now renders
+  correctly in the human output.
+- **`diff --no-color` was documented but ignored.** It now works, and both
+  `diff` and `baseline check` honor the `NO_COLOR` environment variable.
+- **`init` no longer persists config zero-values.** The user config written
+  by `init` contains only `store_path`; previously it wrote the whole config
+  struct (`"retention_days": 0`, …), overriding built-in defaults at load
+  time. `init` also prints where the store path was saved.
+- **Stale help text.** `help analyze` claimed the free tier is "R01–R10";
+  it is all built-in rules (R01–R54) except the [PRO] rules R11–R13.
+  `help diff` now lists every diff section. Unknown commands print a short
+  hint instead of dumping the full usage screen.
+- **`install.sh` with a relative `--prefix`** silently installed into the
+  script's own temporary directory (deleted on exit); the prefix is now
+  resolved to an absolute path first.
+- **Test suite no longer touches the developer's real user config.** CLI
+  tests run fully isolated (`HOME`, `XDG_CONFIG_HOME`, `STATEDRIFT_CONFIG`);
+  previously `go test` overwrote `~/.config/statedrift/config.json`.
+
+### Changed
+
+- README: new `statedrift analyze` command-reference section; documented
+  `watch --once` and `gc --days`.
+- The previously untested `watch` webhook delivery path now has unit and
+  CLI-level test coverage.
+
+---
+
 ## [0.8.0] — 2026-06-30
 
 The agent-configuration release: a new opt-in, free, daemon-free `harness`
