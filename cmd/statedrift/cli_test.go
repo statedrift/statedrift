@@ -572,3 +572,85 @@ func TestCLIInitWritesMinimalUserConfig(t *testing.T) {
 		t.Errorf("user config should contain only store_path, got keys: %v", m)
 	}
 }
+
+// TestCLIDiffSectionTypoRejected verifies a typo'd --section aborts with the
+// unknown-section error instead of silently printing "(no changes)".
+func TestCLIDiffSectionTypoRejected(t *testing.T) {
+	store := initStore(t)
+	out, errOut, code := sd(t, store, "diff", "HEAD~1", "HEAD", "--section", "kernelparams")
+	if code != 1 {
+		t.Fatalf("diff --section kernelparams: expected exit 1, got %d\nstdout: %s", code, out)
+	}
+	if !strings.Contains(errOut, "unknown section") {
+		t.Errorf("expected 'unknown section' in stderr, got:\n%s", errOut)
+	}
+	// A valid section still works.
+	if _, errOut, code := sd(t, store, "diff", "HEAD~1", "HEAD", "--section", "harness"); code != 0 {
+		t.Errorf("diff --section harness: expected exit 0, got %d\nstderr: %s", code, errOut)
+	}
+}
+
+// TestCLIAnalyzeFailOn verifies --fail-on value validation and that a clean
+// diff (no critical findings between two back-to-back snaps) exits 0.
+func TestCLIAnalyzeFailOn(t *testing.T) {
+	store := initStore(t)
+
+	_, errOut, code := sd(t, store, "analyze", "--fail-on", "bogus")
+	if code != 1 {
+		t.Fatalf("analyze --fail-on bogus: expected exit 1, got %d", code)
+	}
+	if !strings.Contains(errOut, "invalid --fail-on") {
+		t.Errorf("expected 'invalid --fail-on' in stderr, got:\n%s", errOut)
+	}
+
+	// Two snapshots taken seconds apart cannot produce a critical finding
+	// (new user, boot-id change, module swap...), so this must exit 0.
+	out, errOut, code := sd(t, store, "analyze", "--fail-on", "critical")
+	if code != 0 {
+		t.Errorf("analyze --fail-on critical on a quiet diff: expected exit 0, got %d\nstdout: %s\nstderr: %s",
+			code, out, errOut)
+	}
+}
+
+// TestCLIWatchOnce verifies `watch --once` performs a single snap/diff cycle
+// and exits 0 without a resident process.
+func TestCLIWatchOnce(t *testing.T) {
+	store := initStore(t)
+	out, errOut, code := sd(t, store, "watch", "--once")
+	if code != 0 {
+		t.Fatalf("watch --once: expected exit 0, got %d\nstdout: %s\nstderr: %s", code, out, errOut)
+	}
+	if !strings.Contains(out, "snap ") {
+		t.Errorf("watch --once: expected a snap line in output, got:\n%s", out)
+	}
+	// The tick must have appended a snapshot: init+2 snaps+1 tick = 4 entries.
+	logOut, _, _ := sd(t, store, "log", "--json")
+	var entries []interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(logOut)), &entries); err != nil {
+		t.Fatalf("log --json after watch --once: %v", err)
+	}
+	if len(entries) != 4 {
+		t.Errorf("expected 4 snapshots after watch --once, got %d", len(entries))
+	}
+	// And the chain must still verify.
+	if _, errOut, code := sd(t, store, "verify"); code != 0 {
+		t.Errorf("verify after watch --once failed (code %d):\n%s", code, errOut)
+	}
+}
+
+// TestCLIUnknownCommandShortHint verifies an unknown command prints a short
+// hint instead of dumping the full usage screen (which scrolled the actual
+// error out of view).
+func TestCLIUnknownCommandShortHint(t *testing.T) {
+	store := t.TempDir()
+	_, errOut, code := sd(t, store, "bogus-command")
+	if code != 1 {
+		t.Fatalf("unknown command: expected exit 1, got %d", code)
+	}
+	if !strings.Contains(errOut, "unknown command") || !strings.Contains(errOut, "statedrift help") {
+		t.Errorf("expected short unknown-command hint, got:\n%s", errOut)
+	}
+	if lines := strings.Count(errOut, "\n"); lines > 3 {
+		t.Errorf("unknown-command output should be a short hint, got %d lines:\n%s", lines, errOut)
+	}
+}

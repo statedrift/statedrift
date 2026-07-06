@@ -341,6 +341,36 @@ func diffMulticastGroups(old, new []collector.MulticastGroup, r *Result) {
 	}
 }
 
+// KnownSections lists every section name Compare can emit on a Change.
+// Kept in sync with the Change constructions across the diff_*.go files;
+// used by the CLI to validate --section filters.
+var KnownSections = []string{
+	"connections", "containers", "cpu", "cron",
+	"dataplane", "dataplane.dpdk", "dataplane.pf",
+	"filesystem", "firewall", "gpu", "groups",
+	"harness", "harness.hooks", "harness.mcp", "harness.model", "harness.permissions",
+	"host", "kernel_counters.ip", "kernel_counters.tcp", "kernel_counters.udp",
+	"kernel_params", "listening_ports", "mac", "modules", "mounts",
+	"multicast_groups", "network.dns", "network.interfaces", "network.routes",
+	"nic_drivers", "packages", "processes", "services", "sockets",
+	"ssh_keys", "sudoers", "timers", "users",
+}
+
+// ValidSectionFilter reports whether filter could match at least one known
+// section. FilterSection matches filter as a prefix of a Change's Section,
+// so a filter is useful exactly when it is a prefix of some known section
+// ("net", "harness.mcp"); anything else — a typo, or a filter longer than
+// every section name — can only ever produce an empty result and must be
+// rejected by the caller rather than silently printing "(no changes)".
+func ValidSectionFilter(filter string) bool {
+	for _, s := range KnownSections {
+		if strings.HasPrefix(s, filter) {
+			return true
+		}
+	}
+	return false
+}
+
 // FilterSection returns a new Result containing only changes whose Section has the given prefix.
 func FilterSection(r *Result, section string) *Result {
 	filtered := &Result{}
