@@ -128,8 +128,8 @@ func main() {
 			printUsage()
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
-		printUsage()
+		fmt.Fprintf(os.Stderr, "statedrift: unknown command %q\n", os.Args[1])
+		fmt.Fprintln(os.Stderr, "Run 'statedrift help' for a list of commands.")
 		os.Exit(1)
 	}
 }
@@ -393,13 +393,15 @@ Examples:
 		"watch": `statedrift watch — Continuously snap and alert on material changes
 
 Usage:
-  statedrift watch [--interval DURATION] [--webhook URL] [--material-only] [--json]
+  statedrift watch [--interval DURATION] [--webhook URL] [--material-only] [--json] [--once]
 
 Flags:
   --interval DURATION   Snapshot interval (default: 5m, minimum: 1m)
   --webhook URL         HTTP POST material changes as JSON to this URL
   --material-only       Suppress counter-only changes in output
   --json                Output diff events as JSON
+  --once                Run a single snap/diff/alert cycle and exit.
+                        For cron jobs where a resident process is not wanted.
 
 Takes a snapshot every interval, diffs against the previous, and prints any
 material changes to stdout. When --webhook is set, also POSTs the JSON diff
@@ -426,21 +428,25 @@ Examples:
   statedrift watch                                         # non-root store via user config
   statedrift watch --interval 5m
   statedrift watch --interval 5m --webhook https://hooks.slack.com/services/...
-  statedrift watch --material-only --json`,
+  statedrift watch --material-only --json
+  statedrift watch --once --webhook https://hooks.slack.com/services/...   # from cron`,
 
 		"analyze": `statedrift analyze — Evaluate anomaly rules against the latest diff
 
 Usage:
-  statedrift analyze [ref] [--rules FILE] [--json]
+  statedrift analyze [ref] [--rules FILE] [--fail-on SEVERITY] [--json]
 
 Arguments:
   ref   Optional: diff this snapshot against its predecessor.
         Accepts HEAD (default), HEAD~N, or a hash prefix.
 
 Flags:
-  --rules FILE   Path to rules JSON file (default: /etc/statedrift/rules.json,
-                 falls back to built-in rules if file is absent)
-  --json         Output findings as JSON
+  --rules FILE         Path to rules JSON file (default: /etc/statedrift/rules.json,
+                       falls back to built-in rules if file is absent)
+  --fail-on SEVERITY   Exit 1 if any finding is at or above this severity
+                       (low, medium, high, critical). Without it, analyze
+                       always exits 0. For CI gates and cron alerting.
+  --json               Output findings as JSON
 
 Evaluates the diff between ref and ref~1 against the configured rule set.
 Rules are sorted by severity: critical > high > medium > low.
@@ -453,6 +459,7 @@ Examples:
   statedrift analyze
   statedrift analyze HEAD~3
   statedrift analyze --rules /etc/statedrift/rules.json
+  statedrift analyze --fail-on high || page-someone
   statedrift analyze --json | jq '.[] | select(.rule.severity=="critical")'`,
 
 		"baseline": `statedrift baseline — Pin a known-good snapshot and check current state against it
@@ -509,8 +516,8 @@ Examples:
 
 	h, ok := helps[cmd]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "statedrift: unknown command %q\n\n", cmd)
-		printUsage()
+		fmt.Fprintf(os.Stderr, "statedrift: unknown command %q\n", cmd)
+		fmt.Fprintln(os.Stderr, "Run 'statedrift help' for a list of commands.")
 		os.Exit(1)
 	}
 	fmt.Println(h)
@@ -983,6 +990,9 @@ func cmdDiff(s *store.Store) {
 
 	result := diff.Compare(snapA, snapB)
 	if sectionFilter != "" {
+		if !diff.ValidSectionFilter(sectionFilter) {
+			fatal("diff: unknown section %q (see 'statedrift help diff' for the list)", sectionFilter)
+		}
 		result = diff.FilterSection(result, sectionFilter)
 	}
 
@@ -1829,7 +1839,8 @@ var allWatchSections = []string{
 
 func cmdWatch(s *store.Store, cfg *config.Config) {
 	checkArgs("watch", os.Args[2:], flagSpec{
-		"--interval": true, "--webhook": true, "--material-only": false, "--json": false,
+		"--interval": true, "--webhook": true,
+		"--material-only": false, "--json": false, "--once": false,
 	}, 0)
 	requireInit(s)
 
@@ -1856,9 +1867,12 @@ func cmdWatch(s *store.Store, cfg *config.Config) {
 	var webhookURL string
 	materialOnly := false
 	jsonOut := false
+	once := false
 
 	for i := 2; i < len(os.Args); i++ {
 		switch os.Args[i] {
+		case "--once":
+			once = true
 		case "--interval":
 			if i+1 < len(os.Args) {
 				d, err := time.ParseDuration(os.Args[i+1])
@@ -1918,7 +1932,103 @@ func cmdWatch(s *store.Store, cfg *config.Config) {
 		}
 		fmt.Println()
 	}
-	fmt.Println("Press Ctrl-C to stop.")
+	if !once {
+		fmt.Println("Press Ctrl-C to stop.")
+	}
+
+	// runTick performs one watch cycle: collect the due sections, save,
+	// enforce retention, diff against the previous snapshot, and alert.
+	runTick := func(t time.Time) {
+		// Determine which sections are due on this tick.
+		due := make(map[string]bool, len(allWatchSections))
+		for _, sec := range allWatchSections {
+			if !t.Before(schedules[sec].nextDue) {
+				due[sec] = true
+			}
+		}
+
+		// Load the most recent snapshot from the store — used both as the
+		// carry-forward base for CollectPartial and as the "previous" for
+		// the diff. One s.List() call serves both purposes.
+		prevHash := s.ReadHead()
+		entries, listErr := s.List()
+
+		var snap *collector.Snapshot
+		var err error
+		if listErr == nil && len(entries) > 0 {
+			prevSnap := entries[len(entries)-1].Snapshot
+			snap, err = collector.CollectPartial(prevSnap, due, prevHash, cfg)
+		} else {
+			// No previous snapshot yet: full collect.
+			snap, err = collector.Collect(prevHash, cfg)
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[%s] snap error: %v\n", tf.RFC3339(t), err)
+			return
+		}
+
+		// Advance schedules for sections that fired this tick.
+		for _, sec := range allWatchSections {
+			if due[sec] {
+				schedules[sec].nextDue = t.Add(schedules[sec].interval)
+			}
+		}
+
+		hash, err := s.Save(snap)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[%s] ERROR: could not save snapshot to %s: %v — no diff computed\n",
+				tf.RFC3339(t), s.BasePath, err)
+			return
+		}
+
+		// Enforce retention policy after every save so the store does not
+		// grow unboundedly.
+		if cfg.RetentionDays > 0 {
+			if gc, err := s.GC(cfg.RetentionDays); err != nil {
+				fmt.Fprintf(os.Stderr, "[%s] gc warning: %v\n", tf.RFC3339(t), err)
+			} else if gc.Removed > 0 {
+				fmt.Printf("[%s] gc: removed %d snapshot(s) older than %d days\n",
+					tf.RFC3339(t), gc.Removed, cfg.RetentionDays)
+			}
+		}
+
+		// Diff against the snapshot that was most recent before this save.
+		if listErr != nil || len(entries) < 1 {
+			fmt.Printf("[%s] snap %s — no previous snapshot to diff\n", tf.RFC3339(t), hash[:12])
+			return
+		}
+
+		prev := entries[len(entries)-1].Snapshot
+		result := diff.Compare(prev, snap)
+
+		if result.Material == 0 && (materialOnly || result.Counters == 0) {
+			fmt.Printf("[%s] snap %s — no changes\n", tf.RFC3339(t), hash[:12])
+			return
+		}
+
+		fmt.Printf("[%s] snap %s — %d material, %d counters\n",
+			tf.RFC3339(t), hash[:12], result.Material, result.Counters)
+
+		if jsonOut {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(result)
+		} else {
+			fmt.Print(diff.Format(result, materialOnly, useColor))
+		}
+
+		if webhookURL != "" && result.Material > 0 {
+			postWebhook(webhookURL, snap, result)
+		}
+	}
+
+	// --once: run a single tick immediately and exit — for cron jobs and
+	// tests, where a resident process is not wanted.
+	if once {
+		runTick(time.Now())
+		return
+	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -1932,88 +2042,7 @@ func cmdWatch(s *store.Store, cfg *config.Config) {
 			fmt.Println("\nstatedrift watch: stopped.")
 			return
 		case t := <-ticker.C:
-			// Determine which sections are due on this tick.
-			due := make(map[string]bool, len(allWatchSections))
-			for _, sec := range allWatchSections {
-				if !t.Before(schedules[sec].nextDue) {
-					due[sec] = true
-				}
-			}
-
-			// Load the most recent snapshot from the store — used both as the
-			// carry-forward base for CollectPartial and as the "previous" for
-			// the diff. One s.List() call serves both purposes.
-			prevHash := s.ReadHead()
-			entries, listErr := s.List()
-
-			var snap *collector.Snapshot
-			var err error
-			if listErr == nil && len(entries) > 0 {
-				prevSnap := entries[len(entries)-1].Snapshot
-				snap, err = collector.CollectPartial(prevSnap, due, prevHash, cfg)
-			} else {
-				// No previous snapshot yet: full collect.
-				snap, err = collector.Collect(prevHash, cfg)
-			}
-
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[%s] snap error: %v\n", tf.RFC3339(t), err)
-				continue
-			}
-
-			// Advance schedules for sections that fired this tick.
-			for _, sec := range allWatchSections {
-				if due[sec] {
-					schedules[sec].nextDue = t.Add(schedules[sec].interval)
-				}
-			}
-
-			hash, err := s.Save(snap)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[%s] ERROR: could not save snapshot to %s: %v — no diff computed\n",
-					tf.RFC3339(t), s.BasePath, err)
-				continue
-			}
-
-			// Enforce retention policy after every save so the store does not
-			// grow unboundedly.
-			if cfg.RetentionDays > 0 {
-				if gc, err := s.GC(cfg.RetentionDays); err != nil {
-					fmt.Fprintf(os.Stderr, "[%s] gc warning: %v\n", tf.RFC3339(t), err)
-				} else if gc.Removed > 0 {
-					fmt.Printf("[%s] gc: removed %d snapshot(s) older than %d days\n",
-						tf.RFC3339(t), gc.Removed, cfg.RetentionDays)
-				}
-			}
-
-			// Diff against the snapshot that was most recent before this save.
-			if listErr != nil || len(entries) < 1 {
-				fmt.Printf("[%s] snap %s — no previous snapshot to diff\n", tf.RFC3339(t), hash[:12])
-				continue
-			}
-
-			prev := entries[len(entries)-1].Snapshot
-			result := diff.Compare(prev, snap)
-
-			if result.Material == 0 && (materialOnly || result.Counters == 0) {
-				fmt.Printf("[%s] snap %s — no changes\n", tf.RFC3339(t), hash[:12])
-				continue
-			}
-
-			fmt.Printf("[%s] snap %s — %d material, %d counters\n",
-				tf.RFC3339(t), hash[:12], result.Material, result.Counters)
-
-			if jsonOut {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				_ = enc.Encode(result)
-			} else {
-				fmt.Print(diff.Format(result, materialOnly, useColor))
-			}
-
-			if webhookURL != "" && result.Material > 0 {
-				postWebhook(webhookURL, snap, result)
-			}
+			runTick(t)
 		}
 	}
 }
@@ -2046,11 +2075,12 @@ func postWebhook(url string, snap *collector.Snapshot, result *diff.Result) {
 }
 
 func cmdAnalyze(s *store.Store, cfg *config.Config) {
-	checkArgs("analyze", os.Args[2:], flagSpec{"--rules": true, "--json": false}, 1)
+	checkArgs("analyze", os.Args[2:], flagSpec{"--rules": true, "--fail-on": true, "--json": false}, 1)
 	requireInit(s)
 
 	var ref string
 	var rulesPath string
+	var failOn string
 	jsonOut := false
 
 	for i := 2; i < len(os.Args); i++ {
@@ -2060,6 +2090,11 @@ func cmdAnalyze(s *store.Store, cfg *config.Config) {
 				rulesPath = os.Args[i+1]
 				i++
 			}
+		case "--fail-on":
+			if i+1 < len(os.Args) {
+				failOn = os.Args[i+1]
+				i++
+			}
 		case "--json":
 			jsonOut = true
 		default:
@@ -2067,6 +2102,10 @@ func cmdAnalyze(s *store.Store, cfg *config.Config) {
 				ref = os.Args[i]
 			}
 		}
+	}
+
+	if failOn != "" && severityRank(failOn) == 0 {
+		fatal("analyze: invalid --fail-on value %q (must be one of: low, medium, high, critical)", failOn)
 	}
 
 	if ref == "" {
@@ -2128,6 +2167,7 @@ func cmdAnalyze(s *store.Store, cfg *config.Config) {
 	}
 
 	findings := rules.Evaluate(ruleSet, ruleChanges, hasPro)
+	failExit := failOn != "" && failOnMet(findings, failOn)
 
 	if jsonOut {
 		type jsonFinding struct {
@@ -2150,6 +2190,9 @@ func cmdAnalyze(s *store.Store, cfg *config.Config) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(out)
+		if failExit {
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -2194,6 +2237,36 @@ func cmdAnalyze(s *store.Store, cfg *config.Config) {
 	if !hasPro {
 		fmt.Println("  Pro rules skipped (no license). See 'statedrift help analyze'.")
 	}
+	if failExit {
+		os.Exit(1)
+	}
+}
+
+// severityRank orders rule severities for --fail-on comparisons.
+// Unknown severities rank 0 (never trigger a failure exit).
+func severityRank(sev string) int {
+	switch sev {
+	case "low":
+		return 1
+	case "medium":
+		return 2
+	case "high":
+		return 3
+	case "critical":
+		return 4
+	}
+	return 0
+}
+
+// failOnMet reports whether any finding meets or exceeds the threshold severity.
+func failOnMet(findings []rules.Finding, threshold string) bool {
+	t := severityRank(threshold)
+	for _, f := range findings {
+		if severityRank(f.Rule.Severity) >= t {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveRef resolves a snapshot reference (HEAD, HEAD~N, hash prefix) to a Snapshot.

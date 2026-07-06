@@ -413,6 +413,7 @@ Continuously snap and alert on material changes. Unlike `daemon`, `watch` diffs 
 statedrift watch                                      # 5m interval, stdout only
 statedrift watch --interval 1m --material-only        # ignore counter-only changes
 statedrift watch --webhook https://hooks.slack.com/services/...
+statedrift watch --once --webhook https://...         # one cycle and exit — cron-friendly
 ```
 
 **Flags:**
@@ -423,6 +424,7 @@ statedrift watch --webhook https://hooks.slack.com/services/...
 | `--webhook <url>` | HTTP POST diff JSON to this URL on every material change |
 | `--material-only` | Suppress counter-only changes (CPU ticks, packet counts, etc.) |
 | `--json` | Emit diff events as JSON to stdout |
+| `--once` | Run a single snap/diff/alert cycle and exit; for cron, where a resident process is not wanted |
 
 `watch` enforces `retention_days` automatically after every snapshot, so the store does not grow unboundedly at tight intervals.
 
@@ -444,6 +446,42 @@ statedrift watch --webhook https://hooks.slack.com/services/...
 | **Sub-minute intervals** | Allowed (for demos/tests) | Rejected (1m floor) |
 
 You can run **both** on the same host: `daemon` for the long-term hash-chained archive at 1h, `watch` at 5m for live alerting. They share the same store; both append to the same chain.
+
+---
+
+### `statedrift analyze`
+
+Evaluate anomaly rules against the latest diff (or any snapshot's diff against its predecessor) and rank the findings by severity. This is the "should I care?" layer on top of `diff`: a new user account, a flipped `ip_forward`, a broadened AI-agent permission each trip a rule.
+
+```bash
+statedrift analyze                       # HEAD vs HEAD~1
+statedrift analyze HEAD~3                # any snapshot vs its predecessor
+statedrift analyze --fail-on high        # exit 1 if any high/critical finding — CI/cron gate
+statedrift analyze --json | jq '.[] | select(.severity=="critical")'
+```
+
+```console
+$ statedrift analyze
+statedrift analyze — 2026-06-30T14:00:12Z → 2026-06-30T15:00:12Z
+  3 material changes, 54 rules evaluated
+
+  [HIGH] New user account (1 match)
+    A new entry was added to /etc/passwd. New accounts created outside a change window may be backdoors.
+  [HIGH] Kernel parameter changed (1 match)
+    A sysctl value was changed. Security-relevant params (ip_forward, rp_filter) are high severity.
+
+2 finding(s). Run 'statedrift diff HEAD~1 HEAD' for full details.
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--rules <file>` | Custom rules JSON (default `/etc/statedrift/rules.json`, falls back to built-ins) |
+| `--fail-on <severity>` | Exit 1 if any finding is at or above `low`/`medium`/`high`/`critical`; without it, always exits 0 |
+| `--json` | Emit findings as a JSON array |
+
+The free tier evaluates all built-in rules (R01–R54) except the three `[PRO]` rules R11–R13. Rules are declarative JSON — see `statedrift help analyze` and [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for writing your own.
 
 ---
 
