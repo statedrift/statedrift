@@ -453,7 +453,10 @@ Remove snapshots older than `retention_days` (from config, default 365).
 
 ```bash
 sudo statedrift gc
+sudo statedrift gc --days 30   # override retention for this run
 ```
+
+`--days 0` (or `retention_days: 0`) means keep forever — nothing is removed.
 
 Re-links the hash chain after deletion so `verify` still passes on the remaining snapshots.
 

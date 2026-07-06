@@ -32,6 +32,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Resolve PREFIX to an absolute path now: the install step later cd's into a
+# temp dir, where a relative --prefix would silently install (and be deleted
+# by the EXIT trap).
+case "$PREFIX" in
+  /*) ;;
+  *) PREFIX="$(pwd)/${PREFIX#./}" ;;
+esac
+
 # Required tools that have no fallback (curl/wget is checked separately later
 # because either one works).
 for tool in tar sha256sum; do

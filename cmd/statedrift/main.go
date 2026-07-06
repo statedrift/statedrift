@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -83,6 +84,16 @@ func main() {
 
 	s := store.New(storePath)
 
+	// `statedrift <cmd> --help` is equivalent to `statedrift help <cmd>`.
+	if os.Args[1] != "help" {
+		for _, a := range os.Args[2:] {
+			if a == "--help" || a == "-h" {
+				printCommandHelp(os.Args[1])
+				return
+			}
+		}
+	}
+
 	switch os.Args[1] {
 	case "init":
 		cmdInit(s, cfg)
@@ -108,7 +119,7 @@ func main() {
 		cmdAnalyze(s, cfg)
 	case "baseline":
 		cmdBaseline(s)
-	case "version":
+	case "version", "--version", "-v":
 		fmt.Printf("statedrift %s (built %s)\n", collector.Version, collector.BuildDate)
 	case "help", "--help", "-h":
 		if len(os.Args) >= 3 {
@@ -142,8 +153,8 @@ Commands:
   analyze      Evaluate anomaly rules against latest diff  [free/Pro]
   baseline     Pin a known-good snapshot and check current state against it
   gc           Remove snapshots older than retention_days
-  version      Print version info
-  help <cmd>   Show detailed help for a command
+  version      Print version info (also --version, -v)
+  help <cmd>   Show detailed help for a command (also <cmd> --help)
 
 Environment:
   STATEDRIFT_STORE   Path to snapshot store (default: /var/lib/statedrift)
@@ -263,9 +274,14 @@ Arguments:
   a, b   Hash prefixes or HEAD/HEAD~N references
 
 Flags:
-  --section SECTION    Limit output to one section:
-                       network, kernel_params, packages,
-                       services, listening_ports, host
+  --section SECTION    Limit output to sections whose name starts with
+                       SECTION. Section names:
+                       host, network, kernel_params, packages, services,
+                       listening_ports, multicast, users, groups, sudoers,
+                       mounts, modules, cron, timers, ssh_keys, mac,
+                       firewall, filesystem, containers, gpu, dataplane,
+                       harness (plus optional collectors: cpu,
+                       kernel_counters, processes, sockets, nic_drivers)
   --material-only      Hide counter-type changes (packet counts, etc.)
   --json               Output diff result as JSON
   --no-color           Disable ANSI color output
@@ -357,7 +373,11 @@ Examples:
 		"gc": `statedrift gc — Remove old snapshots (garbage collect)
 
 Usage:
-  sudo statedrift gc
+  sudo statedrift gc [--days N]
+
+Flags:
+  --days N   Override retention for this run: remove snapshots older than
+             N days. 0 means keep forever (nothing is removed).
 
 Deletes snapshots older than retention_days (from config, default 365).
 Re-links the hash chain so verify still passes on remaining snapshots.
@@ -367,7 +387,8 @@ Configure retention in /etc/statedrift/config.json:
   { "retention_days": 90 }
 
 Examples:
-  sudo statedrift gc`,
+  sudo statedrift gc
+  sudo statedrift gc --days 30`,
 
 		"watch": `statedrift watch — Continuously snap and alert on material changes
 
@@ -425,7 +446,8 @@ Evaluates the diff between ref and ref~1 against the configured rule set.
 Rules are sorted by severity: critical > high > medium > low.
 
 Pro rules (marked [PRO]) require a valid license at /etc/statedrift/license.json.
-Free tier evaluates R01–R10 (core infrastructure rules).
+The free tier evaluates all built-in rules (R01–R54) except the [PRO] rules
+R11–R13.
 
 Examples:
   statedrift analyze
@@ -478,9 +500,11 @@ Examples:
 
 Usage:
   statedrift version
+  statedrift --version
 
 Examples:
-  statedrift version`,
+  statedrift version
+  statedrift -v`,
 	}
 
 	h, ok := helps[cmd]
@@ -495,6 +519,8 @@ Examples:
 // --- Commands ---
 
 func cmdInit(s *store.Store, cfg *config.Config) {
+	checkArgs("init", os.Args[2:], flagSpec{"--force": false}, 0)
+
 	force := false
 	for _, arg := range os.Args[2:] {
 		if arg == "--force" {
@@ -527,8 +553,11 @@ func cmdInit(s *store.Store, cfg *config.Config) {
 
 	// Persist the chosen store path to the user config so subsequent commands
 	// find it without STATEDRIFT_STORE being set in the environment.
+	savedTo := ""
 	if err := config.SaveUserStorePath(s.BasePath); err != nil {
 		fmt.Fprintf(os.Stderr, "statedrift: warning: could not save user config: %v\n", err)
+	} else {
+		savedTo = config.UserConfigPath()
 	}
 
 	fmt.Println("✓ Store initialized at", s.ChainDir())
@@ -536,10 +565,14 @@ func cmdInit(s *store.Store, cfg *config.Config) {
 	fmt.Printf("  Host:    %s\n", snap.Host.Hostname)
 	fmt.Printf("  Time:    %s\n", tf.RFC3339(snap.Timestamp))
 	fmt.Printf("  Hash:    %s\n", hash[:16]+"...")
+	if savedTo != "" {
+		fmt.Printf("✓ Store path saved to %s\n", savedTo)
+	}
 	fmt.Println("✓ Run 'statedrift snap' to take more snapshots.")
 }
 
 func cmdSnap(s *store.Store, cfg *config.Config) {
+	checkArgs("snap", os.Args[2:], flagSpec{}, 0)
 	requireInit(s)
 
 	prevHash := s.ReadHead()
@@ -602,6 +635,7 @@ func cmdSnap(s *store.Store, cfg *config.Config) {
 }
 
 func cmdLog(s *store.Store) {
+	checkArgs("log", os.Args[2:], flagSpec{"--since": true, "--until": true, "--json": false}, 0)
 	requireInit(s)
 
 	var sinceStr, untilStr string
@@ -735,9 +769,10 @@ func cmdLog(s *store.Store) {
 func cmdShow(s *store.Store) {
 	requireInit(s)
 
-	if len(os.Args) < 3 {
+	if len(os.Args) < 3 || strings.HasPrefix(os.Args[2], "-") {
 		fatal("usage: statedrift show <ref>\n  ref: HEAD, HEAD~N, or a hash prefix (run 'statedrift log' to list snapshots)")
 	}
+	checkArgs("show", os.Args[3:], flagSpec{"--json": false}, 0)
 
 	jsonOut := false
 	for _, arg := range os.Args[3:] {
@@ -746,7 +781,7 @@ func cmdShow(s *store.Store) {
 		}
 	}
 
-	snap, err := resolveRef(s, os.Args[2])
+	snap, hash, err := resolveRef(s, os.Args[2])
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -760,15 +795,6 @@ func cmdShow(s *store.Store) {
 		return
 	}
 
-	// Resolve hash for display.
-	entries, _ := s.List()
-	hash := ""
-	for _, e := range entries {
-		if e.Snapshot == snap {
-			hash = e.Hash
-			break
-		}
-	}
 	if len(hash) >= 16 {
 		fmt.Printf("Snapshot %s\n", hash[:16]+"...")
 	} else {
@@ -918,15 +944,18 @@ func cmdShow(s *store.Store) {
 func cmdDiff(s *store.Store) {
 	requireInit(s)
 
-	if len(os.Args) < 4 {
+	if len(os.Args) < 4 || strings.HasPrefix(os.Args[2], "-") || strings.HasPrefix(os.Args[3], "-") {
 		fatal("usage: statedrift diff <hash-prefix-a> <hash-prefix-b>")
 	}
+	checkArgs("diff", os.Args[4:], flagSpec{
+		"--material-only": false, "--json": false, "--no-color": false, "--section": true,
+	}, 0)
 
-	snapA, err := resolveRef(s, os.Args[2])
+	snapA, _, err := resolveRef(s, os.Args[2])
 	if err != nil {
 		fatal("snapshot A: %v", err)
 	}
-	snapB, err := resolveRef(s, os.Args[3])
+	snapB, _, err := resolveRef(s, os.Args[3])
 	if err != nil {
 		fatal("snapshot B: %v", err)
 	}
@@ -934,6 +963,7 @@ func cmdDiff(s *store.Store) {
 	materialOnly := false
 	sectionFilter := ""
 	jsonOut := false
+	noColor := false
 	args := os.Args[4:]
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -941,6 +971,8 @@ func cmdDiff(s *store.Store) {
 			materialOnly = true
 		case "--json":
 			jsonOut = true
+		case "--no-color":
+			noColor = true
 		case "--section":
 			if i+1 < len(args) {
 				sectionFilter = args[i+1]
@@ -967,10 +999,13 @@ func cmdDiff(s *store.Store) {
 		tf.Short(snapA.Timestamp),
 		tf.Short(snapB.Timestamp),
 	)
-	fmt.Print(diff.Format(result, materialOnly, isTerminal()))
+	useColor := isTerminal() && !noColor && os.Getenv("NO_COLOR") == ""
+	fmt.Print(diff.Format(result, materialOnly, useColor))
 }
 
 func cmdVerify(s *store.Store) {
+	checkArgs("verify", os.Args[2:], flagSpec{}, 1)
+
 	// If a bundle path is given, verify the bundle instead of the local store.
 	if len(os.Args) >= 3 && !strings.HasPrefix(os.Args[2], "--") {
 		cmdVerifyBundle(os.Args[2])
@@ -1074,6 +1109,10 @@ func cmdVerify(s *store.Store) {
 }
 
 func cmdExport(s *store.Store) {
+	checkArgs("export", os.Args[2:], flagSpec{
+		"--from": true, "--to": true, "-o": true, "--output": true,
+		"--redact-network": false, "--redact-hostnames": false,
+	}, 0)
 	requireInit(s)
 
 	var fromStr, toStr, output string
@@ -1259,6 +1298,10 @@ func cmdVerifyBundle(path string) {
 }
 
 func cmdDaemon(s *store.Store, cfg *config.Config) {
+	checkArgs("daemon", os.Args[2:], flagSpec{
+		"--install": false, "--uninstall": false, "--interval": true,
+	}, 0)
+
 	install := false
 	uninstall := false
 	intervalStr := cfg.Interval
@@ -1371,9 +1414,10 @@ func cmdBaseline(s *store.Store) {
 // load-bearing for compliance use, where silently replacing the
 // known-good reference would mask drift.
 func cmdBaselinePin(s *store.Store) {
-	if len(os.Args) < 4 {
+	if len(os.Args) < 4 || strings.HasPrefix(os.Args[3], "-") {
 		fatal("usage: statedrift baseline pin <ref> [--force]")
 	}
+	checkArgs("baseline", os.Args[4:], flagSpec{"--force": false}, 0)
 	ref := os.Args[3]
 
 	force := false
@@ -1388,7 +1432,7 @@ func cmdBaselinePin(s *store.Store) {
 		fatal("a baseline is already pinned at %s.\n  Re-pin with --force, or run 'statedrift baseline unpin --force' first.", path)
 	}
 
-	snap, err := resolveRef(s, ref)
+	snap, _, err := resolveRef(s, ref)
 	if err != nil {
 		fatal("resolving %q: %v", ref, err)
 	}
@@ -1412,6 +1456,8 @@ func cmdBaselinePin(s *store.Store) {
 // cmdBaselineShow prints the pin metadata and, with --full, dumps the
 // embedded snapshot via the same JSON-print path used by cmdShow.
 func cmdBaselineShow(s *store.Store) {
+	checkArgs("baseline", os.Args[3:], flagSpec{"--full": false}, 0)
+
 	full := false
 	for i := 3; i < len(os.Args); i++ {
 		if os.Args[i] == "--full" {
@@ -1450,6 +1496,8 @@ func cmdBaselineShow(s *store.Store) {
 // fat-finger does not silently delete the operator's compliance
 // reference.
 func cmdBaselineUnpin(s *store.Store) {
+	checkArgs("baseline", os.Args[3:], flagSpec{"--force": false}, 0)
+
 	force := false
 	for i := 3; i < len(os.Args); i++ {
 		if os.Args[i] == "--force" {
@@ -1490,10 +1538,16 @@ func cmdBaselineUnpin(s *store.Store) {
 //	                    material/counter counts, and the change list
 //	                    (filtered per --include-counters).
 func cmdBaselineCheck(s *store.Store) {
+	checkArgs("baseline", os.Args[3:], flagSpec{
+		"--include-counters": false, "--material-only": false,
+		"--quiet": false, "--json": false, "--no-color": false,
+	}, 1)
+
 	ref := "HEAD"
 	includeCounters := false
 	quiet := false
 	jsonOut := false
+	noColor := false
 
 	args := os.Args[3:]
 	for i := 0; i < len(args); i++ {
@@ -1507,8 +1561,7 @@ func cmdBaselineCheck(s *store.Store) {
 		case "--json":
 			jsonOut = true
 		case "--no-color":
-			// Honored implicitly via isTerminal()/NO_COLOR; accept the
-			// flag for symmetry.
+			noColor = true
 		default:
 			if !strings.HasPrefix(args[i], "--") {
 				ref = args[i]
@@ -1524,7 +1577,7 @@ func cmdBaselineCheck(s *store.Store) {
 		fatal("reading baseline: %v", err)
 	}
 
-	target, err := resolveRef(s, ref)
+	target, _, err := resolveRef(s, ref)
 	if err != nil {
 		fatal("resolving %q: %v", ref, err)
 	}
@@ -1576,7 +1629,8 @@ func cmdBaselineCheck(s *store.Store) {
 			fmt.Println("\n✓ No drift from baseline.")
 		} else {
 			fmt.Println()
-			fmt.Print(diff.Format(result, materialOnlyDisplay, isTerminal()))
+			useColor := isTerminal() && !noColor && os.Getenv("NO_COLOR") == ""
+			fmt.Print(diff.Format(result, materialOnlyDisplay, useColor))
 		}
 	}
 
@@ -1586,6 +1640,7 @@ func cmdBaselineCheck(s *store.Store) {
 }
 
 func cmdGC(s *store.Store) {
+	checkArgs("gc", os.Args[2:], flagSpec{"--days": true}, 0)
 	requireInit(s)
 
 	cfg, err := config.Load()
@@ -1595,13 +1650,20 @@ func cmdGC(s *store.Store) {
 
 	retentionDays := cfg.RetentionDays
 	// Override with --days flag if provided.
-	for i := 2; i < len(os.Args)-1; i++ {
+	for i := 2; i < len(os.Args); i++ {
 		if os.Args[i] == "--days" {
-			var n int
-			if _, err := fmt.Sscanf(os.Args[i+1], "%d", &n); err == nil && n >= 0 {
-				retentionDays = n
+			n, err := strconv.Atoi(os.Args[i+1])
+			if err != nil || n < 0 {
+				fatal("gc: invalid --days value %q (must be a non-negative whole number of days)", os.Args[i+1])
 			}
+			retentionDays = n
+			i++
 		}
+	}
+
+	if retentionDays == 0 {
+		fmt.Println("retention_days is 0 (keep forever) — nothing to remove.")
+		return
 	}
 
 	fmt.Printf("Removing snapshots older than %d days...\n", retentionDays)
@@ -1766,6 +1828,9 @@ var allWatchSections = []string{
 }
 
 func cmdWatch(s *store.Store, cfg *config.Config) {
+	checkArgs("watch", os.Args[2:], flagSpec{
+		"--interval": true, "--webhook": true, "--material-only": false, "--json": false,
+	}, 0)
 	requireInit(s)
 
 	if err := checkStoreWritable(s); err != nil {
@@ -1981,6 +2046,7 @@ func postWebhook(url string, snap *collector.Snapshot, result *diff.Result) {
 }
 
 func cmdAnalyze(s *store.Store, cfg *config.Config) {
+	checkArgs("analyze", os.Args[2:], flagSpec{"--rules": true, "--json": false}, 1)
 	requireInit(s)
 
 	var ref string
@@ -2019,11 +2085,11 @@ func cmdAnalyze(s *store.Store, cfg *config.Config) {
 		fatal("need at least 2 snapshots to diff; run 'statedrift snap' to record another")
 	}
 
-	newSnap, err := resolveRef(s, ref)
+	newSnap, _, err := resolveRef(s, ref)
 	if err != nil {
 		fatal("resolving %q: %v", ref, err)
 	}
-	oldSnap, err := resolveRef(s, ref+"~1")
+	oldSnap, _, err := resolveRef(s, ref+"~1")
 	if err != nil {
 		// Fallback: if ref is already HEAD, use the second-to-last entry
 		if len(entries) >= 2 {
@@ -2132,17 +2198,18 @@ func cmdAnalyze(s *store.Store, cfg *config.Config) {
 
 // resolveRef resolves a snapshot reference (HEAD, HEAD~N, hash prefix) to a Snapshot.
 // This duplicates the resolution logic from cmdShow/cmdDiff; a future refactor can unify them.
-func resolveRef(s *store.Store, ref string) (*collector.Snapshot, error) {
+func resolveRef(s *store.Store, ref string) (*collector.Snapshot, string, error) {
 	entries, err := s.List()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if len(entries) == 0 {
-		return nil, fmt.Errorf("no snapshots in store")
+		return nil, "", fmt.Errorf("no snapshots in store")
 	}
 
 	if ref == "HEAD" {
-		return entries[len(entries)-1].Snapshot, nil
+		e := entries[len(entries)-1]
+		return e.Snapshot, e.Hash, nil
 	}
 
 	if strings.HasPrefix(ref, "HEAD~") {
@@ -2150,27 +2217,59 @@ func resolveRef(s *store.Store, ref string) (*collector.Snapshot, error) {
 		n := 0
 		for _, ch := range nStr {
 			if ch < '0' || ch > '9' {
-				return nil, fmt.Errorf("invalid HEAD~N: %q", ref)
+				return nil, "", fmt.Errorf("invalid HEAD~N: %q", ref)
 			}
 			n = n*10 + int(ch-'0')
 		}
 		idx := len(entries) - 1 - n
 		if idx < 0 {
-			return nil, fmt.Errorf("HEAD~%d: only %d snapshots available", n, len(entries))
+			return nil, "", fmt.Errorf("HEAD~%d: only %d snapshots available", n, len(entries))
 		}
-		return entries[idx].Snapshot, nil
+		return entries[idx].Snapshot, entries[idx].Hash, nil
 	}
 
 	// Hash prefix
 	for _, e := range entries {
 		if strings.HasPrefix(e.Hash, ref) {
-			return e.Snapshot, nil
+			return e.Snapshot, e.Hash, nil
 		}
 	}
-	return nil, fmt.Errorf("no snapshot matching %q", ref)
+	return nil, "", fmt.Errorf("no snapshot matching %q", ref)
 }
 
 // --- Helpers ---
+
+// flagSpec lists a command's accepted flags. The value is true when the
+// flag consumes the following argument.
+type flagSpec map[string]bool
+
+// checkArgs validates a command's arguments against its flag spec. Unknown
+// flags, flags missing a required value, and surplus positional arguments
+// (more than maxPositionals non-flag args) all abort with exit code 1 —
+// a typo must never be silently ignored.
+func checkArgs(cmd string, args []string, spec flagSpec, maxPositionals int) {
+	positionals := 0
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			positionals++
+			if positionals > maxPositionals {
+				fatal("%s: unexpected argument %q (see 'statedrift help %s')", cmd, a, cmd)
+			}
+			continue
+		}
+		takesValue, ok := spec[a]
+		if !ok {
+			fatal("%s: unknown flag %s (see 'statedrift help %s')", cmd, a, cmd)
+		}
+		if takesValue {
+			if i+1 >= len(args) {
+				fatal("%s: flag %s requires a value (see 'statedrift help %s')", cmd, a, cmd)
+			}
+			i++
+		}
+	}
+}
 
 func requireInit(s *store.Store) {
 	_, err := os.Stat(s.ChainDir())
