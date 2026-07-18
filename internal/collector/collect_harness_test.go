@@ -154,6 +154,105 @@ func TestParseHarnessFileMalformedIsNil(t *testing.T) {
 	}
 }
 
+// writeUserConfig writes a ~/.claude.json fixture into home with the given
+// noise value mixed into its high-churn keys.
+func writeUserConfig(t *testing.T, home, noise string) {
+	t.Helper()
+	writeHarnessFile(t, home, ".claude.json", `{
+		"firstStartTime": "`+noise+`",
+		"cachedGrowthBookFeatures": {"flag": "`+noise+`"},
+		"mcpServers": {
+			"github": {"command": "npx", "args": ["-y", "server"], "env": {"GITHUB_TOKEN": "`+mcpSecret+`"}}
+		},
+		"projects": {
+			"/home/u/proj": {
+				"mcpServers": {"db": {"type": "http", "url": "https://db.example/mcp"}},
+				"history": ["`+noise+`"]
+			},
+			"/home/u/other": {"history": ["no servers here"]}
+		}
+	}`)
+}
+
+func TestCollectHarnessUserScopeClaudeJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeUserConfig(t, home, "noise-a")
+
+	inv, err := collectHarness(config.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv == nil || inv.TotalConfigs != 2 {
+		t.Fatalf("expected 2 configs (user scope + one project), got %+v", inv)
+	}
+	userSrc := filepath.Join(home, ".claude.json")
+	if inv.Configs[0].Source != userSrc {
+		t.Errorf("user-scope source = %q, want %q", inv.Configs[0].Source, userSrc)
+	}
+	if got := inv.Configs[0].MCPServers; len(got) != 1 || got[0].Name != "github" || got[0].Transport != "stdio" {
+		t.Errorf("user-scope servers = %+v, want one stdio server 'github'", got)
+	}
+	if want := userSrc + "#/home/u/proj"; inv.Configs[1].Source != want {
+		t.Errorf("project source = %q, want %q", inv.Configs[1].Source, want)
+	}
+	if got := inv.Configs[1].MCPServers; len(got) != 1 || got[0].Name != "db" || got[0].Transport != "http" {
+		t.Errorf("project servers = %+v, want one http server 'db'", got)
+	}
+
+	blob, err := json.Marshal(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(blob), mcpSecret) {
+		t.Error("MCP env secret from ~/.claude.json leaked into the snapshot")
+	}
+	if strings.Contains(string(blob), "noise-a") {
+		t.Error("telemetry/cache content from ~/.claude.json leaked into the snapshot")
+	}
+}
+
+func TestCollectHarnessUserScopeChurnInvisible(t *testing.T) {
+	// The UI/telemetry keys in ~/.claude.json change on every agent run; a
+	// noise-only change must produce a byte-identical harness section, or every
+	// snapshot on a developer host would carry a spurious diff.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	writeUserConfig(t, home, "noise-a")
+	before, err := collectHarness(config.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeUserConfig(t, home, "noise-b")
+	after, err := collectHarness(config.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b1, _ := json.Marshal(before)
+	b2, _ := json.Marshal(after)
+	if string(b1) != string(b2) {
+		t.Errorf("noise-only change altered the harness section:\nbefore: %s\nafter:  %s", b1, b2)
+	}
+}
+
+func TestParseUserConfigFileMalformedIsNil(t *testing.T) {
+	dir := t.TempDir()
+	writeHarnessFile(t, dir, ".claude.json", `{ not json `)
+	if out := parseUserConfigFile(filepath.Join(dir, ".claude.json")); out != nil {
+		t.Errorf("malformed ~/.claude.json should parse to nil, got %+v", out)
+	}
+	if out := parseUserConfigFile(filepath.Join(dir, "missing.json")); out != nil {
+		t.Error("missing file should parse to nil")
+	}
+	// A file with churn keys but no MCP wiring anywhere yields no entries.
+	writeHarnessFile(t, dir, ".claude.json", `{"firstStartTime": "x", "projects": {"/p": {"history": []}}}`)
+	if out := parseUserConfigFile(filepath.Join(dir, ".claude.json")); out != nil {
+		t.Errorf("wiring-free ~/.claude.json should yield no entries, got %+v", out)
+	}
+}
+
 func TestMCPFingerprintStableAcrossSecretRotation(t *testing.T) {
 	// Rotating a secret value (same env key) must not change the fingerprint —
 	// only a wiring change (command/args/url/env-key-set) should.
