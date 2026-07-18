@@ -36,8 +36,9 @@ import (
 var harnessFilenames = []string{"settings.json", "settings.local.json", ".mcp.json"}
 
 // collectHarness discovers and parses harness config under the configured roots
-// (plus the daemon user's ~/.claude by default). Returns (nil, nil) when nothing
-// is found.
+// (plus the daemon user's ~/.claude by default). A root named ".claude" also
+// pulls MCP wiring from the sibling ~/.claude.json — the file `claude mcp add`
+// writes user-scope servers to. Returns (nil, nil) when nothing is found.
 func collectHarness(cfg *config.Config) (*HarnessInventory, error) {
 	var configs []HarnessConfig
 	seen := make(map[string]bool)
@@ -50,6 +51,13 @@ func collectHarness(cfg *config.Config) (*HarnessInventory, error) {
 			seen[path] = true
 			if hc := parseHarnessFile(path); hc != nil {
 				configs = append(configs, *hc)
+			}
+		}
+		if cleaned := filepath.Clean(root); filepath.Base(cleaned) == ".claude" {
+			path := cleaned + ".json"
+			if !seen[path] {
+				seen[path] = true
+				configs = append(configs, parseUserConfigFile(path)...)
 			}
 		}
 	}
@@ -131,15 +139,7 @@ func parseHarnessFile(path string) *HarnessConfig {
 		}
 	}
 
-	for name, s := range f.MCPServers {
-		hc.MCPServers = append(hc.MCPServers, HarnessMCP{
-			Name:        name,
-			Transport:   mcpTransport(s),
-			EnvKeys:     sortedKeys(s.Env),
-			Fingerprint: mcpFingerprint(s),
-		})
-	}
-	sort.Slice(hc.MCPServers, func(i, j int) bool { return hc.MCPServers[i].Name < hc.MCPServers[j].Name })
+	hc.MCPServers = mcpList(f.MCPServers)
 
 	for event, groups := range f.Hooks {
 		for _, g := range groups {
@@ -166,6 +166,62 @@ func parseHarnessFile(path string) *HarnessConfig {
 		return nil
 	}
 	return &hc
+}
+
+// ccUserConfigFile is the slice of ~/.claude.json that carries privilege
+// signal. The file also holds UI state, caches, and telemetry that churn on
+// every agent run — recording any of that would break the quiet-snapshot
+// property, so only MCP wiring (user scope and per-project) is declared here
+// and everything else is ignored by the decoder.
+type ccUserConfigFile struct {
+	MCPServers map[string]ccMCPServer   `json:"mcpServers"`
+	Projects   map[string]ccUserProject `json:"projects"`
+}
+
+type ccUserProject struct {
+	MCPServers map[string]ccMCPServer `json:"mcpServers"`
+}
+
+// parseUserConfigFile extracts MCP wiring from a Claude Code user-scope config
+// (~/.claude.json). User-scope servers become one entry keyed by the file path;
+// each project with servers becomes its own "path#project" entry so its wiring
+// diffs independently. Missing or malformed files yield nil, like
+// parseHarnessFile.
+func parseUserConfigFile(path string) []HarnessConfig {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var f ccUserConfigFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil
+	}
+
+	var out []HarnessConfig
+	if servers := mcpList(f.MCPServers); len(servers) > 0 {
+		out = append(out, HarnessConfig{Source: path, Tool: "claude-code", MCPServers: servers})
+	}
+	for proj, p := range f.Projects {
+		if servers := mcpList(p.MCPServers); len(servers) > 0 {
+			out = append(out, HarnessConfig{Source: path + "#" + proj, Tool: "claude-code", MCPServers: servers})
+		}
+	}
+	return out
+}
+
+// mcpList converts a parsed mcpServers map into the stored, name-sorted form.
+func mcpList(servers map[string]ccMCPServer) []HarnessMCP {
+	var out []HarnessMCP
+	for name, s := range servers {
+		out = append(out, HarnessMCP{
+			Name:        name,
+			Transport:   mcpTransport(s),
+			EnvKeys:     sortedKeys(s.Env),
+			Fingerprint: mcpFingerprint(s),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // harnessConfigEmpty reports whether a parsed config carries no

@@ -257,3 +257,17 @@ Shipped mostly as proposed. Deltas from the proposal, all recorded above:
   ChangeType "added"), so a single R49 covers both.
 - Config `Harness` shipped with `Roots` only; no `Tools` field (v1 is
   Claude-Code-only). Next free rule ID is now **R55**.
+
+## v0.8.2 addendum — user-scope ~/.claude.json (2026-07-18)
+
+Gap found in review: `claude mcp add` (user scope) writes MCP servers to
+`~/.claude.json` — a file v1 never scanned, so the most common way a server
+gets wired in was invisible. Fix: any scanned root whose basename is
+`.claude` also parses the sibling `.claude.json` via a dedicated decoder
+(`ccUserConfigFile`) that declares ONLY `mcpServers` and
+`projects.*.mcpServers`; every other key (UI state, caches, telemetry —
+high-churn) is ignored so noise-only edits yield byte-identical sections
+(regression-tested). User-scope servers keep the file path as Source;
+per-project servers get `path#project` so each project diffs independently.
+R50/R52 fire unchanged (diff keys by Source; rules are section+ChangeType
+only). No schema change, no new config knob.

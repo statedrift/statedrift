@@ -9,6 +9,19 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+### Added
+
+- **`harness` collector: user-scope `~/.claude.json` coverage.** `claude mcp
+  add` writes user-scope MCP servers to `~/.claude.json`, not `.mcp.json` —
+  previously invisible to the collector. Any scanned root named `.claude` now
+  also pulls MCP wiring from the sibling `.claude.json`: user-scope servers
+  under the file path, per-project servers under `path#project`. Only the MCP
+  wiring is extracted — the file's UI/telemetry state churns on every agent
+  run and is ignored, so noise-only changes produce byte-identical snapshots.
+  Secrets are dropped at collect as before (env key names + redacted
+  fingerprint only). Existing rules R50/R52 fire on these entries; no schema
+  change.
+
 ---
 
 ## [0.8.1] — 2026-07-06

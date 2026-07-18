@@ -205,7 +205,7 @@ Gates the optional collectors added in v0.2. All are off by default (opt-in). Ea
 | `containers` (v0.6) | `/proc/[pid]/cgroup` | Running-container inventory (runtime-agnostic, daemon-free) + privileged-container detection |
 | `gpu` (v0.6) | `/proc/driver/nvidia` | NVIDIA GPU/accelerator inventory; driver/VBIOS/model drift (daemon-free) |
 | `dataplane` (v0.7) | `/sys/class/net/*/device`, `/sys/bus/pci/devices` | SR-IOV physical-function VF counts + DPDK-bound NICs (vfio-pci/uio); daemon-free |
-| `harness` (v0.8) | `~/.claude/*.json` (+ configured roots) | AI-agent-harness config: tool permissions, MCP servers, hooks, model; secrets dropped at collect (daemon-free) |
+| `harness` (v0.8) | `~/.claude/*.json`, `~/.claude.json` (+ configured roots) | AI-agent-harness config: tool permissions, MCP servers, hooks, model; secrets dropped at collect (daemon-free) |
 
 Enable everything:
 
@@ -261,7 +261,7 @@ and `.mcp.json`).
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `roots` | array of strings | Additional directories to scan for harness config, e.g. project `.claude` directories or project roots holding a `.mcp.json`. Additive — the daemon user's `~/.claude` is always scanned. |
+| `roots` | array of strings | Additional directories to scan for harness config, e.g. project `.claude` directories or project roots holding a `.mcp.json`. Additive — the daemon user's `~/.claude` is always scanned. A root named `.claude` also pulls user-scope and per-project MCP servers from the sibling `.claude.json` (only the MCP wiring; the file's UI/telemetry state is ignored). |
 
 Secrets never enter snapshots: MCP server `env` values and credentials embedded
 in commands are dropped at collect time. The collector stores env variable
