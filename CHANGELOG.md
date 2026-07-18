@@ -9,6 +9,13 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+---
+
+## [0.8.2] — 2026-07-18
+
+Closes the main visibility gap in the v0.8 `harness` collector: user-scope
+MCP servers. No schema change (still 0.5), no Pro features.
+
 ### Added
 
 - **`harness` collector: user-scope `~/.claude.json` coverage.** `claude mcp
@@ -21,6 +28,11 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
   Secrets are dropped at collect as before (env key names + redacted
   fingerprint only). Existing rules R50/R52 fire on these entries; no schema
   change.
+
+### Fixed
+
+- The CLI test suite no longer leaks a temp directory on every `go test`
+  run (`TestMain` cleanup ran after `os.Exit`, i.e. never).
 
 ---
 
