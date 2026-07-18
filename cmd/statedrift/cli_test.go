@@ -23,8 +23,6 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "TestMain: MkdirTemp: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmp)
-
 	testBinary = filepath.Join(tmp, "statedrift")
 	// Build with CGO_ENABLED=0 for a clean static binary.
 	cmd := exec.Command("go", "build", "-o", testBinary, ".")
@@ -33,10 +31,14 @@ func TestMain(m *testing.M) {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "TestMain: build failed: %v\n", err)
+		os.RemoveAll(tmp)
 		os.Exit(1)
 	}
 
-	os.Exit(m.Run())
+	// os.Exit bypasses defers, so clean up explicitly.
+	code := m.Run()
+	os.RemoveAll(tmp)
+	os.Exit(code)
 }
 
 // sd runs the test binary with the given arguments and a temporary store.

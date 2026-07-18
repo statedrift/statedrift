@@ -97,7 +97,7 @@ Linux only (amd64 and arm64). Needs `curl` (or `wget`), `tar`, and `sha256sum`. 
 Pin a version, or install without sudo to a user-writable prefix:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash -s -- --version 0.8.0
+curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash -s -- --version 0.8.1
 curl -fsSL https://raw.githubusercontent.com/statedrift/statedrift/main/install.sh | bash -s -- --prefix "$HOME/.local/bin"
 ```
 
@@ -643,7 +643,7 @@ Yes. Use `--json` flags on `log`, `show`, and `diff` for machine-readable output
 An auditor needs only `sha256sum` and `jq` to run `verify.sh` from an export bundle — no Go toolchain, no statedrift binary required.
 
 **Will statedrift track more than host state?**
-The current release captures host-level infrastructure state — the operational signals that matter most for incident response and compliance. v0.3 expands this with security signals (users, groups, SSH keys, kernel modules, cron, mounts), v0.4 adds process forensics, SELinux/AppArmor enforcement state, and firewall ruleset hashing, and later versions add filesystem diff, fleet baselining, and container runtime state. See [ROADMAP.md](ROADMAP.md) for the full plan, or open an issue to tell us what matters to you.
+It already does. Beyond core host state, opt-in collectors cover filesystem hash trees, containers, GPUs, SR-IOV/DPDK dataplane wiring, and AI coding-agent configuration (the `harness` collector). Planned next: deeper agent-config coverage, fleet baselining (Pro), and external timestamping. See [ROADMAP.md](ROADMAP.md) for the full plan, or open an issue to tell us what matters to you.
 
 ## Contributing
 

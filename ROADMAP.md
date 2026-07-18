@@ -13,45 +13,52 @@ operators, with an optional Pro tier for fleet baselining and reporting.
   R11-R13 (Pro). `watch` command with webhook alerts. Pro license
   framework. Audit bundles add a Windows-native `verify.ps1` alongside
   `verify.sh`.
-
-## In progress — v0.3.0
-
-Free-tier security signal expansion:
-
-- User and group changes (`/etc/passwd`, `/etc/group`, sudoers)
-- Loaded kernel modules and their signatures
-- SSH authorized keys across all home directories
-- Cron jobs and systemd timers
-- Mount points and filesystem types
-
-Adds rules R14-R25 to the free anomaly engine.
+- **v0.3.0** — Free-tier security signal expansion: users, groups, and
+  sudoers; loaded kernel modules; SSH authorized keys; cron jobs and
+  systemd timers; mounts. Rules R14-R25.
+- **v0.4.0** — Security completeness: SELinux / AppArmor enforcement
+  state (R29-R31), firewall ruleset hashing (R32-R33), process-forensics
+  rules (R26-R28), `statedrift baseline` pin / check / unpin for ad-hoc
+  compliance gates, and export-time redaction (`--redact-network`,
+  `--redact-hostnames`).
+- **v0.5.x** — Rule-by-rule firewall diff (per-chain added / removed /
+  reordered rules). Opt-in `filesystem` collector: recursive hash trees
+  over configured roots with per-file structural diff. Anomaly rules
+  R34-R36 (setuid added, world-writable path, sensitive port opened).
+  Customizable policy rules: `rules.json` gains a `match`
+  value-condition matcher (eq / ne / contains / prefix / suffix / regex,
+  numeric comparisons, and `changed`).
+- **v0.6.0** — Opt-in `containers` collector: running-container
+  inventory from `/proc` cgroup membership, runtime-agnostic and
+  daemon-free (R37-R39, including privileged-container detection).
+  Opt-in `gpu` collector: NVIDIA inventory from `/proc/driver/nvidia`
+  for driver / VBIOS / model drift (R40-R43).
+- **v0.7.0** — Opt-in `dataplane` collector: SR-IOV physical functions
+  and DPDK-bound NICs from `/sys` (R44-R47), plus R48 for in-place
+  kernel-module replacement.
+- **v0.8.0** — Opt-in `harness` collector: AI coding-agent configuration
+  (Claude Code's `settings.json` / `.mcp.json`) — permissions, MCP
+  servers, hooks, and model — with secrets dropped at collect time
+  (R49-R54).
+- **v0.8.1** — CLI polish: `analyze --fail-on`, `watch --once`,
+  `diff --section` validation, strict flag parsing, `--help` /
+  `--version` everywhere.
 
 ## Planned
 
-- **v0.4.0 — Security completeness.** SELinux / AppArmor enforcement
-  state. Limited filesystem hash diff. Firewall rule hashing.
-  `statedrift baseline` for ad-hoc compliance checks against a saved
-  known-good state.
-- **v0.5.0 — Pro depth.** Recursive filesystem hash trees with structural
-  diff *(delivered — Phase P: opt-in `filesystem` collector hashes configured
-  roots into a per-file tree; diff reports per-file added / removed / modified
-  changes)*. Rule-by-rule firewall diff *(delivered — Phase O: the parsed
-  ruleset is stored and the diff reports per-chain added / removed / reordered
-  rules)*. Smart filesystem/firewall anomaly rules *(delivered — Phase Q:
-  free rules R34–R36 — setuid/setgid added, world-writable path, sensitive
-  port opened to any source)*. Customizable policy rules *(delivered — free:
-  `rules.json` gains a `match` value-condition matcher — eq/ne/contains/
-  prefix/suffix/regex, numeric gt/lt/gte/lte, and changed — over new/old/key)*.
-- **v0.6.0 — Fleet (Pro) + container state (free).** Container runtime state
-  *(delivered — free: opt-in `containers` collector detects running containers
-  from /proc cgroup membership, runtime-agnostic and daemon-free; diff + rules
-  R37/R38 flag a container appearing / disappearing)*. Still planned: baseline
-  export / import / compare across many hosts (Pro), AI / GPU runtime
-  configuration, DPDK / SR-IOV and other kernel-bypass networking detection.
+- **Harness depth.** Cover more of the agent-config surface (additional
+  config locations and agent harnesses beyond Claude Code) so MCP and
+  permission drift is visible wherever it is defined.
+- **Fleet (Pro).** Baseline export / import / compare across many
+  hosts — the same tamper-evident chain, aggregated.
+- **Reporting (Pro).** Time-range summaries and audit-ready narratives
+  built from the chain.
+- **External timestamping.** Optional posting of head hashes to a
+  transparency log so even the operator cannot backdate history.
 
 Versions ship roughly every 4-6 weeks. The free tier always includes
 the core hash chain, all collectors, the free anomaly rules
-(R01-R36, excluding the Pro rules R11-R13), and customizable policy
+(R01-R54, excluding the Pro rules R11-R13), and customizable policy
 rules. Pro adds depth, fleet, and reporting.
 
 ## Out of scope
@@ -65,6 +72,6 @@ rules. Pro adds depth, fleet, and reporting.
 
 Open an issue or discussion at
 [github.com/statedrift/statedrift](https://github.com/statedrift/statedrift)
-to shape the order. Items in v0.3 and v0.4 are firmer; v0.5 and v0.6
-are softer. If you have a concrete use case that should jump the queue,
+to shape the order. Released collectors are firm; the planned items are
+softer. If you have a concrete use case that should jump the queue,
 please say so.
