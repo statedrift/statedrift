@@ -159,7 +159,21 @@ Every snapshot records:
 | `mac` | SELinux/AppArmor enforcement mode and policy | `/sys/fs/selinux`, `/sys/kernel/security/apparmor` |
 | `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) plus the parsed per-rule list for added/removed/reordered diff (rules embed IPs/ports — redacted by `--redact-network`) | `nft list ruleset`, `iptables-save` |
 
-Optional opt-in collectors (enabled in the `collectors` config block) add CPU / kernel counters / process / socket / NIC-driver inventories and — new in v0.5 — a `filesystem` hash tree. When enabled, `filesystem` walks a configured set of roots (default `/etc`) and records per-file mode, ownership, size, and a SHA-256 content hash plus a Merkle `root_hash`, so the diff reports per-file content / permission / ownership changes. Size caps bound snapshot growth; paths and hashes are not redacted (system config paths, not Category B). New in v0.6, the `containers` collector records the running container inventory from `/proc` cgroup membership — runtime-agnostic (Docker, containerd/CRI, CRI-O, podman) and daemon-free — so the diff flags a container appearing or disappearing (rules R37/R38), or turning privileged (R39). The v0.6 `gpu` collector reads the NVIDIA driver's `/proc` interface for driver/VBIOS/model drift (R40–R43). New in v0.7, the `dataplane` collector reads `/sys` for SR-IOV physical-function VF counts and DPDK-bound NICs (devices handed to a userspace `vfio-pci`/`uio` driver, leaving the kernel stack and its firewall blind to them) — rules R44–R47. New in v0.8, the `harness` collector parses the JSON config of AI coding/ops agents (Claude Code's `settings.json`, `.mcp.json`, and the user-scope `~/.claude.json` that `claude mcp add` writes to) — the agent's own config is attack surface, so the diff flags a broadened tool permission, a new MCP server or hook, or a model change (rules R49–R54); secrets never enter snapshots (env values and embedded credentials are dropped at collect, leaving only key names and a redacted fingerprint). All of these are free, opt-in, and daemon-free.
+Opt-in collectors extend the snapshot further. Enable them by name in the `collectors` config block (or `"all": true`); all are free and daemon-free, like everything else:
+
+| Collector | What | Drift it catches |
+|-----------|------|------------------|
+| `cpu`, `kernel_counters` | CPU mode ticks; IP/TCP/UDP protocol counters | Load and traffic anomalies (tracked as counters, never material drift) |
+| `processes` | Top-N processes by memory | A resident process that wasn't there before |
+| `sockets` | Socket inventory per process | A process quietly opening new connections |
+| `nic_drivers` | NIC driver and firmware versions (`ethtool -i`) | A swapped driver or firmware image |
+| `filesystem` | Hash tree over configured roots (default `/etc`): per-file mode, ownership, size, SHA-256, plus a Merkle `root_hash` | Per-file content, permission, or ownership changes |
+| `containers` | Running-container inventory from `/proc` cgroup membership — runtime-agnostic (Docker, containerd, CRI-O, podman) | A container appearing (R37), disappearing (R38), or turning privileged (R39) |
+| `gpu` | NVIDIA GPU inventory from the driver's `/proc` interface | GPU added/removed, driver or VBIOS drift (R40–R43) |
+| `dataplane` | SR-IOV VF counts and DPDK-bound NICs from `/sys` — devices handed to a userspace `vfio-pci`/`uio` driver, invisible to the kernel stack and its firewall | A NIC silently rebound to userspace, VF counts changing (R44–R47) |
+| `harness` | Your AI agent's own config: Claude Code's `settings.json`, `.mcp.json`, and the user-scope `~/.claude.json` that `claude mcp add` writes to | A broadened tool permission, a new MCP server or hook, a model change (R49–R54) |
+
+`filesystem` growth is bounded by size and file-count caps; file paths and hashes are stored as-is (system config paths, nothing sensitive). The `harness` collector never stores secrets — MCP env values and embedded credentials are dropped at collect time, keeping only key names and a redacted fingerprint (details in the box below).
 
 > **Your AI coding agent's own config is attack surface — statedrift version-controls it.**
 >
