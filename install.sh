@@ -162,10 +162,17 @@ chmod 755 "${INSTALL_PATH}"
 echo ""
 echo "statedrift installed to: ${INSTALL_PATH}"
 echo ""
+# Print the full install path in the quick start: sudo resets PATH to
+# secure_path (which on RHEL excludes even /usr/local/bin), so a bare
+# "sudo statedrift" is not copy-pasteable. All commands need sudo because
+# a root init stores the config and chain under root-owned paths.
 echo "Quick start:"
-echo "  sudo statedrift init"
-echo "  sudo statedrift snap"
-echo "  statedrift log"
-echo "  statedrift diff HEAD~1 HEAD"
+echo "  sudo ${INSTALL_PATH} init"
+echo "  sudo ${INSTALL_PATH} snap        # run again after any change"
+echo "  sudo ${INSTALL_PATH} diff HEAD~1 HEAD"
+echo "  sudo ${INSTALL_PATH} verify"
 echo ""
-echo "Run 'statedrift help' for full usage."
+echo "No root? Use a home-directory store instead (drop sudo from every command):"
+echo "  STATEDRIFT_STORE=\$HOME/.statedrift ${INSTALL_PATH} init"
+echo ""
+echo "Run '${INSTALL_PATH} help' for full usage."

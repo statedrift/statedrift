@@ -112,8 +112,15 @@ make build && sudo cp bin/statedrift /usr/local/bin/
 ```bash
 sudo statedrift init          # record the genesis snapshot (chain root)
 sudo statedrift snap          # ...later, snapshot again after any change
-statedrift diff HEAD~1 HEAD   # see exactly what changed
-statedrift verify             # prove the whole chain is untampered
+sudo statedrift diff HEAD~1 HEAD   # see exactly what changed
+sudo statedrift verify             # prove the whole chain is untampered
+```
+
+Prefer to try it without root? Use a home-directory store — then no command needs sudo:
+
+```bash
+export STATEDRIFT_STORE=$HOME/.statedrift
+statedrift init && statedrift snap
 ```
 
 That's the loop. Run `snap` on a schedule (cron, or the built-in `statedrift watch`) and you've got a continuous, verifiable record of everything your host is. See [what gets captured](#what-gets-captured) below, or `statedrift --help` for every command.
