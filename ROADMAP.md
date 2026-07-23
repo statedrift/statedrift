@@ -49,6 +49,14 @@ operators, with an optional Pro tier for fleet baselining and reporting.
 - **Harness depth.** Cover more of the agent-config surface (additional
   config locations and agent harnesses beyond Claude Code) so MCP and
   permission drift is visible wherever it is defined.
+- **Agent transcript anchoring.** Anchor the agent's session logs
+  (e.g. Claude Code's per-session transcripts) into the chain so
+  truncated, rewritten, or deleted agent history is detectable — an
+  agent (or attacker) covering its tracks becomes visible drift.
+  Content is never stored or interpreted: only sizes and incremental
+  segment hashes, computed append-only-aware so each snapshot reads
+  just the bytes added since the last one, however large the logs
+  grow.
 - **Fleet (Pro).** Baseline export / import / compare across many
   hosts — the same tamper-evident chain, aggregated.
 - **Reporting (Pro).** Time-range summaries and audit-ready narratives
