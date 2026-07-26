@@ -2,15 +2,44 @@
 
 ## Config file location
 
-Statedrift reads `/etc/statedrift/config.json` on startup.
+Configuration is layered. Lowest to highest priority:
 
-Override with the `STATEDRIFT_CONFIG` environment variable:
+1. Built-in defaults
+2. User config: `$XDG_CONFIG_HOME/statedrift/config.json` (default
+   `~/.config/statedrift/config.json`) — written by `statedrift init`
+   (store path) and `statedrift config enable/disable` (collector switches)
+3. System config: `/etc/statedrift/config.json`, or the path in the
+   `STATEDRIFT_CONFIG` environment variable:
 
 ```bash
 STATEDRIFT_CONFIG=/home/user/statedrift.json statedrift snap
 ```
 
-If the file does not exist, all defaults apply — no error is reported.
+Fields present in a higher-priority file override lower ones. If no file
+exists, all defaults apply — no error is reported.
+
+## The `config` command
+
+You rarely need to hand-write JSON:
+
+```bash
+statedrift config                    # effective merged config + where each layer came from
+statedrift config enable harness     # flip one collector switch in the user config
+statedrift config disable harness
+statedrift config example            # complete sample config, every value at its default
+```
+
+`enable`/`disable` edit exactly one key in the user config and leave
+everything else in the file untouched. Because the system config outranks
+the user file, statedrift re-checks the effective value after writing and
+warns if `/etc/statedrift/config.json` overrides what you just set.
+
+`config example` output is safe to save as-is — every value is the
+built-in default, so the file changes nothing until you edit it:
+
+```bash
+statedrift config example > ~/.config/statedrift/config.json
+```
 
 ## Full config schema
 
@@ -54,7 +83,12 @@ If the file does not exist, all defaults apply — no error is reported.
     "processes": false,
     "sockets": false,
     "nic_drivers": false,
-    "connections": false
+    "connections": false,
+    "filesystem": false,
+    "containers": false,
+    "gpu": false,
+    "dataplane": false,
+    "harness": false
   },
   "ignore": {
     "interfaces": [],
@@ -206,6 +240,9 @@ Gates the optional collectors added in v0.2. All are off by default (opt-in). Ea
 | `gpu` (v0.6) | `/proc/driver/nvidia` | NVIDIA GPU/accelerator inventory; driver/VBIOS/model drift (daemon-free) |
 | `dataplane` (v0.7) | `/sys/class/net/*/device`, `/sys/bus/pci/devices` | SR-IOV physical-function VF counts + DPDK-bound NICs (vfio-pci/uio); daemon-free |
 | `harness` (v0.8) | `~/.claude/*.json`, `~/.claude.json` (+ configured roots) | AI-agent-harness config: tool permissions, MCP servers, hooks, model; secrets dropped at collect (daemon-free) |
+
+The `statedrift config` command flips these switches without hand-editing
+JSON (`statedrift config enable harness`, `statedrift config enable all`).
 
 Enable everything:
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -98,6 +99,13 @@ const (
 // /etc only (config / credential / unit drift — high value, modest size).
 var FSDefaultRoots = []string{"/etc"}
 
+// KnownCollectors lists every optional-collector switch, in display order.
+// "all" is the master switch that enables everything.
+var KnownCollectors = []string{
+	"all", "cpu", "kernel_counters", "processes", "sockets", "nic_drivers",
+	"connections", "filesystem", "containers", "gpu", "dataplane", "harness",
+}
+
 // IsEnabled returns true if the named optional collector should run.
 // Name must be one of: "cpu", "kernel_counters", "processes", "sockets", "nic_drivers".
 func (c Collectors) IsEnabled(name string) bool {
@@ -162,6 +170,16 @@ func UserConfigPath() string {
 	return filepath.Join(base, "statedrift", "config.json")
 }
 
+// SystemConfigPath returns the effective system config path: $STATEDRIFT_CONFIG
+// if set, otherwise /etc/statedrift/config.json. Load reads this file last,
+// so it has the highest priority among config files.
+func SystemConfigPath() string {
+	if p := os.Getenv("STATEDRIFT_CONFIG"); p != "" {
+		return p
+	}
+	return "/etc/statedrift/config.json"
+}
+
 // Load reads config using a layered approach (lowest to highest priority):
 //  1. Built-in defaults
 //  2. User config (~/.config/statedrift/config.json) — written by init
@@ -180,11 +198,7 @@ func Load() (*Config, error) {
 	}
 
 	// Layer 2: system config (highest priority among files).
-	spath := os.Getenv("STATEDRIFT_CONFIG")
-	if spath == "" {
-		spath = "/etc/statedrift/config.json"
-	}
-	if err := loadFile(cfg, spath); err != nil {
+	if err := loadFile(cfg, SystemConfigPath()); err != nil {
 		return nil, err
 	}
 
@@ -309,6 +323,93 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// ExampleJSON returns a complete sample config: every key present, every
+// value at its built-in default. Saving this file unchanged does not alter
+// behavior — the values ARE the defaults, spelled out (this is why the
+// filesystem limits are printed as their real values rather than the 0
+// that means "use defaults"). Nil slices and maps are materialized as
+// empty so the JSON shows the key rather than omitting it.
+func ExampleJSON() ([]byte, error) {
+	cfg := Default()
+	cfg.KernelParams = []string{}
+	cfg.SectionIntervals = map[string]string{}
+	cfg.Ignore.Interfaces = []string{}
+	cfg.Ignore.Packages = []string{}
+	cfg.Filesystem.Roots = append([]string{}, FSDefaultRoots...)
+	cfg.Filesystem.Excludes = []string{}
+	cfg.Filesystem.MaxFileSize = FSDefaultMaxFileSize
+	cfg.Filesystem.MaxFiles = FSDefaultMaxFiles
+	cfg.Dataplane.DPDKDrivers = []string{}
+	cfg.Harness.Roots = []string{}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+// SetCollector flips one switch inside the "collectors" object of the user
+// config file and returns the path written. Like SaveUserStorePath, it
+// merges at the raw-JSON level so no other key — and no other collector
+// switch — is touched or converted to a zero value. Name must be one of
+// KnownCollectors. Note the system config (/etc/statedrift/config.json)
+// still overrides the user file at load time; callers should reload and
+// verify when they need to report the effective result.
+func SetCollector(name string, enabled bool) (string, error) {
+	known := false
+	for _, k := range KnownCollectors {
+		if name == k {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return "", fmt.Errorf("unknown collector %q (valid: %s)", name, strings.Join(KnownCollectors, ", "))
+	}
+
+	upath := UserConfigPath()
+	if upath == "" {
+		return "", fmt.Errorf("cannot determine user config path (no home directory)")
+	}
+	if err := os.MkdirAll(filepath.Dir(upath), 0755); err != nil {
+		return "", err
+	}
+
+	raw := map[string]json.RawMessage{}
+	if data, err := os.ReadFile(upath); err == nil {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return "", fmt.Errorf("existing %s is not valid JSON: %w", upath, err)
+		}
+	}
+
+	collectors := map[string]json.RawMessage{}
+	if prev, ok := raw["collectors"]; ok {
+		if err := json.Unmarshal(prev, &collectors); err != nil {
+			return "", fmt.Errorf("existing %s has a malformed collectors section: %w", upath, err)
+		}
+	}
+	val, err := json.Marshal(enabled)
+	if err != nil {
+		return "", err
+	}
+	collectors[name] = val
+
+	merged, err := json.Marshal(collectors)
+	if err != nil {
+		return "", err
+	}
+	raw["collectors"] = merged
+
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(upath, append(data, '\n'), 0644); err != nil {
+		return "", err
+	}
+	return upath, nil
 }
 
 // SaveUserStorePath writes the store path to the user config so subsequent

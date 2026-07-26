@@ -1,7 +1,9 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -350,5 +352,161 @@ func TestLoadCustomKernelParams(t *testing.T) {
 	}
 	if len(cfg.KernelParams) != 2 {
 		t.Errorf("KernelParams len = %d, want 2", len(cfg.KernelParams))
+	}
+}
+
+func TestExampleJSONRoundTrips(t *testing.T) {
+	data, err := ExampleJSON()
+	if err != nil {
+		t.Fatalf("ExampleJSON: %v", err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("example output is not valid JSON: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("example config does not validate: %v", err)
+	}
+	// Saving the example unchanged must not alter behavior: scalar values
+	// must equal the built-in defaults.
+	def := Default()
+	if cfg.StorePath != def.StorePath || cfg.Interval != def.Interval ||
+		cfg.RetentionDays != def.RetentionDays || cfg.DisplayTZ != def.DisplayTZ {
+		t.Errorf("example scalars diverge from defaults: %+v vs %+v", cfg, def)
+	}
+	if cfg.Filesystem.MaxFileSize != FSDefaultMaxFileSize || cfg.Filesystem.MaxFiles != FSDefaultMaxFiles {
+		t.Errorf("example filesystem limits = %d/%d, want defaults %d/%d",
+			cfg.Filesystem.MaxFileSize, cfg.Filesystem.MaxFiles, FSDefaultMaxFileSize, FSDefaultMaxFiles)
+	}
+	if cfg.Collectors.All || cfg.Collectors.Harness {
+		t.Errorf("example must ship with all collectors off")
+	}
+	// Every collector switch must be spelled out in the JSON so the file is
+	// self-documenting.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+	var collectors map[string]bool
+	if err := json.Unmarshal(raw["collectors"], &collectors); err != nil {
+		t.Fatalf("unmarshal collectors: %v", err)
+	}
+	for _, name := range KnownCollectors {
+		if _, ok := collectors[name]; !ok {
+			t.Errorf("example collectors block missing %q", name)
+		}
+	}
+}
+
+func TestSetCollectorCreatesUserConfig(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("STATEDRIFT_CONFIG", "/nonexistent/system-config.json")
+
+	path, err := SetCollector("harness", true)
+	if err != nil {
+		t.Fatalf("SetCollector: %v", err)
+	}
+	if path != UserConfigPath() {
+		t.Errorf("wrote to %s, want %s", path, UserConfigPath())
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load after SetCollector: %v", err)
+	}
+	if !cfg.Collectors.IsEnabled("harness") {
+		t.Errorf("harness not enabled after SetCollector")
+	}
+	if cfg.Collectors.IsEnabled("gpu") {
+		t.Errorf("gpu enabled as a side effect")
+	}
+}
+
+func TestSetCollectorPreservesOtherKeys(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("STATEDRIFT_CONFIG", "/nonexistent/system-config.json")
+
+	// Seed a user config the way init does, plus a hand-set collector.
+	if err := SaveUserStorePath("/data/statedrift"); err != nil {
+		t.Fatalf("SaveUserStorePath: %v", err)
+	}
+	if _, err := SetCollector("gpu", true); err != nil {
+		t.Fatalf("SetCollector gpu: %v", err)
+	}
+
+	if _, err := SetCollector("harness", true); err != nil {
+		t.Fatalf("SetCollector harness: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.StorePath != "/data/statedrift" {
+		t.Errorf("store_path clobbered: %q", cfg.StorePath)
+	}
+	if !cfg.Collectors.GPU || !cfg.Collectors.Harness {
+		t.Errorf("expected gpu and harness both enabled, got %+v", cfg.Collectors)
+	}
+	// retention_days etc. must still fall back to built-in defaults — the
+	// merge must not have persisted zero values.
+	if cfg.RetentionDays != 365 {
+		t.Errorf("RetentionDays = %d, want default 365", cfg.RetentionDays)
+	}
+
+	if _, err := SetCollector("gpu", false); err != nil {
+		t.Fatalf("SetCollector disable gpu: %v", err)
+	}
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Collectors.GPU {
+		t.Errorf("gpu still enabled after disable")
+	}
+	if !cfg.Collectors.Harness {
+		t.Errorf("harness disabled as a side effect")
+	}
+}
+
+func TestSetCollectorUnknownName(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if _, err := SetCollector("bogus", true); err == nil {
+		t.Fatal("expected error for unknown collector name")
+	}
+}
+
+func TestSetCollectorAll(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("STATEDRIFT_CONFIG", "/nonexistent/system-config.json")
+	if _, err := SetCollector("all", true); err != nil {
+		t.Fatalf("SetCollector all: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Collectors.IsEnabled("dataplane") {
+		t.Errorf(`"all": true does not enable dataplane via IsEnabled`)
+	}
+}
+
+func TestSetCollectorRejectsMalformedUserConfig(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	upath := UserConfigPath()
+	if err := os.MkdirAll(filepath.Dir(upath), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(upath, []byte("{not json"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := SetCollector("harness", true); err == nil {
+		t.Fatal("expected error on malformed user config, got nil (would have clobbered the file)")
+	}
+	// The broken file must be left untouched for the user to inspect.
+	data, err := os.ReadFile(upath)
+	if err != nil || string(data) != "{not json" {
+		t.Errorf("malformed config was modified: %q, %v", data, err)
 	}
 }

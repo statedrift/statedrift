@@ -656,3 +656,105 @@ func TestCLIUnknownCommandShortHint(t *testing.T) {
 		t.Errorf("unknown-command output should be a short hint, got %d lines:\n%s", lines, errOut)
 	}
 }
+
+// TestCLIConfigExample verifies `config example` prints valid JSON with every
+// collector switch present, so it can be redirected straight into a config file.
+func TestCLIConfigExample(t *testing.T) {
+	store := t.TempDir()
+	out, errOut, code := sd(t, store, "config", "example")
+	if code != 0 {
+		t.Fatalf("config example exited %d: %s", code, errOut)
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &cfg); err != nil {
+		t.Fatalf("config example output is not valid JSON: %v\n%s", err, out)
+	}
+	var collectors map[string]bool
+	if err := json.Unmarshal(cfg["collectors"], &collectors); err != nil {
+		t.Fatalf("collectors block: %v", err)
+	}
+	for _, name := range []string{"all", "harness", "filesystem", "dataplane"} {
+		if v, ok := collectors[name]; !ok || v {
+			t.Errorf("collectors[%q] = %v, %v — want present and false", name, v, ok)
+		}
+	}
+}
+
+// TestCLIConfigEnableDisable verifies the one-liner flow: enable writes only
+// the collectors switch to the user config, show reflects it, disable undoes it.
+func TestCLIConfigEnableDisable(t *testing.T) {
+	store := t.TempDir()
+
+	out, errOut, code := sd(t, store, "config", "enable", "harness")
+	if code != 0 {
+		t.Fatalf("config enable exited %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, "Enabled collector \"harness\"") {
+		t.Errorf("enable output missing confirmation: %s", out)
+	}
+
+	// The switch must land in the isolated user config, nowhere else.
+	upath := filepath.Join(store, ".xdg", "statedrift", "config.json")
+	data, err := os.ReadFile(upath)
+	if err != nil {
+		t.Fatalf("user config not written: %v", err)
+	}
+	var raw struct {
+		Collectors map[string]bool `json:"collectors"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("user config not valid JSON: %v\n%s", err, data)
+	}
+	if !raw.Collectors["harness"] {
+		t.Errorf("collectors.harness not true in user config: %s", data)
+	}
+
+	// Effective config must now show it enabled.
+	out, errOut, code = sd(t, store, "config")
+	if code != 0 {
+		t.Fatalf("config show exited %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, `"harness": true`) {
+		t.Errorf("config show does not reflect enabled harness:\n%s", out)
+	}
+	if !strings.Contains(out, "Sources") {
+		t.Errorf("config show missing sources listing:\n%s", out)
+	}
+
+	out, errOut, code = sd(t, store, "config", "disable", "harness")
+	if code != 0 {
+		t.Fatalf("config disable exited %d: %s", code, errOut)
+	}
+	out, _, _ = sd(t, store, "config")
+	if !strings.Contains(out, `"harness": false`) {
+		t.Errorf("config show does not reflect disabled harness:\n%s", out)
+	}
+}
+
+// TestCLIConfigEnableUnknownCollector verifies a typo'd name fails with the
+// valid list rather than silently writing a key nothing reads.
+func TestCLIConfigEnableUnknownCollector(t *testing.T) {
+	store := t.TempDir()
+	_, errOut, code := sd(t, store, "config", "enable", "bogus")
+	if code == 0 {
+		t.Fatal("config enable bogus should exit non-zero")
+	}
+	if !strings.Contains(errOut, "unknown collector") || !strings.Contains(errOut, "harness") {
+		t.Errorf("error should name the valid collectors: %s", errOut)
+	}
+	if _, err := os.Stat(filepath.Join(store, ".xdg", "statedrift", "config.json")); err == nil {
+		t.Errorf("user config written despite invalid collector name")
+	}
+}
+
+// TestCLIConfigUnknownSubcommand keeps the config dispatch strict.
+func TestCLIConfigUnknownSubcommand(t *testing.T) {
+	store := t.TempDir()
+	_, errOut, code := sd(t, store, "config", "frobnicate")
+	if code == 0 {
+		t.Fatal("config frobnicate should exit non-zero")
+	}
+	if !strings.Contains(errOut, "unknown config subcommand") {
+		t.Errorf("unexpected error output: %s", errOut)
+	}
+}
