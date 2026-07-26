@@ -9,6 +9,14 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+---
+
+## [0.8.3] — 2026-07-26
+
+New-user ergonomics before the public launch: enabling a collector no
+longer requires hand-written JSON, and the README documents a clean
+uninstall. No schema change (still 0.5), no Pro features.
+
 ### Added
 
 - **`statedrift config` command.** Enabling an optional collector is now a
@@ -24,6 +32,10 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
     key present and every value at its built-in default, safe to save as-is.
   - `init` now points at the command, and the README/CONFIGURATION docs use
     it as the primary way to enable collectors.
+- **README Uninstall section.** Everything statedrift touches is four paths
+  (binary, store, config, optional systemd unit) — now spelled out as
+  explicit removal commands, with a pointer at `statedrift config` to
+  confirm the effective paths first.
 
 ---
 

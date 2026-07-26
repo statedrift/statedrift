@@ -43,6 +43,11 @@ operators, with an optional Pro tier for fleet baselining and reporting.
 - **v0.8.1** — CLI polish: `analyze --fail-on`, `watch --once`,
   `diff --section` validation, strict flag parsing, `--help` /
   `--version` everywhere.
+- **v0.8.2** — `harness` collector covers user-scope `~/.claude.json`
+  MCP wiring (what `claude mcp add` writes), churn keys ignored.
+- **v0.8.3** — `statedrift config` command: show the effective config
+  and its sources, print a full example, and enable/disable optional
+  collectors as a one-liner. README uninstall documentation.
 
 ## Planned
 
