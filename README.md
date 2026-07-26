@@ -643,6 +643,21 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the complete reference.
 | `STATEDRIFT_CONFIG` | Override config file path (default: `/etc/statedrift/config.json`) |
 | `NO_COLOR` | Set to any value to disable ANSI color output |
 
+## Uninstall
+
+Everything statedrift touches on a host is four paths — remove them and it's gone:
+
+```bash
+sudo statedrift daemon --uninstall               # only if you installed the systemd service
+sudo rm /usr/local/bin/statedrift                # the binary (or wherever --prefix put it)
+sudo rm -rf /var/lib/statedrift                  # the snapshot store — this is your audit history
+sudo rm -rf /etc/statedrift ~/.config/statedrift # config (and license, if any)
+```
+
+If you used a home-directory store, it's wherever `STATEDRIFT_STORE` pointed (e.g. `rm -rf ~/.statedrift`). Not sure where the store or config ended up? `statedrift config` prints the effective paths before you delete anything.
+
+Nothing else is installed anywhere — no libraries, no cron entries, no background services beyond the optional systemd unit above.
+
 ## How it works with Chef / Ansible / Puppet
 
 **Chef tells your infrastructure what it should be. Statedrift records what it actually is.**
