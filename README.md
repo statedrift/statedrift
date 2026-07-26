@@ -123,7 +123,13 @@ export STATEDRIFT_STORE=$HOME/.statedrift
 statedrift init && statedrift snap
 ```
 
-That's the loop. Run `snap` on a schedule (cron, or the built-in `statedrift watch`) and you've got a continuous, verifiable record of everything your host is. See [what gets captured](#what-gets-captured) below, or `statedrift --help` for every command.
+That's the loop. Run `snap` on a schedule (cron, or the built-in `statedrift watch`) and you've got a continuous, verifiable record of everything your host is. Want more than the core sections? Optional collectors (containers, GPUs, your AI agent's config, ...) are one command away:
+
+```bash
+sudo statedrift config enable containers   # or: gpu, dataplane, harness, ... or all
+```
+
+See [what gets captured](#what-gets-captured) below, or `statedrift --help` for every command.
 
 ### Optional: shell alias
 
@@ -159,7 +165,7 @@ Every snapshot records:
 | `mac` | SELinux/AppArmor enforcement mode and policy | `/sys/fs/selinux`, `/sys/kernel/security/apparmor` |
 | `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) plus the parsed per-rule list for added/removed/reordered diff (rules embed IPs/ports — redacted by `--redact-network`) | `nft list ruleset`, `iptables-save` |
 
-Opt-in collectors extend the snapshot further. Enable them by name in the `collectors` config block (or `"all": true`); all are free and daemon-free, like everything else:
+Opt-in collectors extend the snapshot further. Enable one with `statedrift config enable <name>` (or `enable all` for everything); all are free and daemon-free, like everything else:
 
 | Collector | What | Drift it catches |
 |-----------|------|------------------|
@@ -180,6 +186,7 @@ Opt-in collectors extend the snapshot further. Enable them by name in the `colle
 > An agent's permissions, MCP servers, and hooks decide what it's allowed to touch. A silently broadened tool permission or a newly wired-in MCP server is a real privilege change, and nothing else is watching that file. The `harness` collector snapshots it, so the change shows up in the diff and trips a rule:
 >
 > ```console
+> $ statedrift config enable harness   # one-time opt-in (reads your ~/.claude — run as your own user)
 > $ statedrift diff HEAD~1 HEAD --section harness
 >   harness.mcp:
 >   + ~/.claude.json filesystem: stdio      # a new MCP server was wired in → R50
@@ -557,6 +564,21 @@ sudo statedrift baseline unpin --force             # remove the pin
 
 ---
 
+### `statedrift config`
+
+Show the effective configuration, or flip an optional collector on or off without hand-editing JSON.
+
+```bash
+statedrift config                    # effective config + which files it came from
+statedrift config enable harness     # turn one collector on (or: enable all)
+statedrift config disable harness
+statedrift config example            # print a full sample config, every value at its default
+```
+
+`enable`/`disable` edit exactly one switch in the user config file (`~/.config/statedrift/config.json`) — the same file where `init` records the store path; nothing else in the file is touched, and host state never is. The system config `/etc/statedrift/config.json` takes precedence over the user file; if it pins the setting you just changed, statedrift tells you.
+
+---
+
 ### `statedrift version`
 
 Print the binary version.
@@ -581,7 +603,15 @@ statedrift help export
 
 ## Configuration
 
-Statedrift reads `/etc/statedrift/config.json` on startup (override with `STATEDRIFT_CONFIG=/path/to/config.json`). All fields are optional — defaults apply when the file is absent.
+Configuration is layered, lowest to highest priority: built-in defaults, then the user file `~/.config/statedrift/config.json` (written by `statedrift init` and `statedrift config enable`), then the system file `/etc/statedrift/config.json` (override its path with `STATEDRIFT_CONFIG`). All fields are optional — defaults apply when no file exists.
+
+You rarely need to hand-write JSON:
+
+```bash
+statedrift config                    # effective config + where each layer came from
+statedrift config enable harness     # flip one collector on
+statedrift config example            # full sample with every value at its default
+```
 
 ```json
 {

@@ -9,6 +9,22 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+### Added
+
+- **`statedrift config` command.** Enabling an optional collector is now a
+  one-liner instead of hand-written JSON:
+  - `statedrift config` — print the effective merged config plus which
+    files it came from (defaults → user config → system config → env).
+  - `statedrift config enable <name>` / `disable <name>` — flip exactly one
+    collector switch in the user config file, leaving every other setting
+    untouched (same key-level merge `init` uses for the store path). After
+    writing, the effective value is re-checked and statedrift warns when the
+    system config overrides it, or when `"all": true` keeps a collector on.
+  - `statedrift config example` — print a complete sample config with every
+    key present and every value at its built-in default, safe to save as-is.
+  - `init` now points at the command, and the README/CONFIGURATION docs use
+    it as the primary way to enable collectors.
+
 ---
 
 ## [0.8.2] — 2026-07-18

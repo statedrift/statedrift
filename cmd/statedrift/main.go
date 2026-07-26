@@ -119,6 +119,8 @@ func main() {
 		cmdAnalyze(s, cfg)
 	case "baseline":
 		cmdBaseline(s)
+	case "config":
+		cmdConfig(cfg)
 	case "version", "--version", "-v":
 		fmt.Printf("statedrift %s (built %s)\n", collector.Version, collector.BuildDate)
 	case "help", "--help", "-h":
@@ -152,6 +154,7 @@ Commands:
   watch        Continuously snap and alert on material changes
   analyze      Evaluate anomaly rules against latest diff  [free/Pro]
   baseline     Pin a known-good snapshot and check current state against it
+  config       Show effective config; enable/disable optional collectors
   gc           Remove snapshots older than retention_days
   version      Print version info (also --version, -v)
   help <cmd>   Show detailed help for a command (also <cmd> --help)
@@ -215,6 +218,35 @@ Examples:
   sudo statedrift init
   STATEDRIFT_STORE=$HOME/.statedrift statedrift init
   STATEDRIFT_STORE=$HOME/.statedrift statedrift init --force`,
+
+		"config": `statedrift config — Show effective config, enable/disable optional collectors
+
+Usage:
+  statedrift config                  Show the effective config and its sources
+  statedrift config example          Print a complete sample config (all defaults)
+  statedrift config enable <name>    Turn an optional collector on
+  statedrift config disable <name>   Turn an optional collector off
+
+Optional collectors (all off by default):
+  cpu, kernel_counters, processes, sockets, nic_drivers, connections,
+  filesystem, containers, gpu, dataplane, harness — or "all" for everything.
+
+enable/disable edit exactly one switch in the user config file
+($XDG_CONFIG_HOME/statedrift/config.json), leaving every other setting
+untouched — the same file where init records the store path. Host state is
+never modified. The system config (/etc/statedrift/config.json) takes
+precedence over the user file; if it pins a setting, statedrift says so.
+
+The sample printed by 'config example' has every value at its built-in
+default, so saving it unchanged does not alter behavior:
+  statedrift config example > ~/.config/statedrift/config.json
+
+Examples:
+  statedrift config
+  statedrift config enable harness   # start tracking AI-agent config drift
+  statedrift snap                    # next snapshot includes it
+  statedrift config disable harness
+  statedrift config example`,
 
 		"snap": `statedrift snap — Take an on-demand snapshot
 
@@ -576,6 +608,7 @@ func cmdInit(s *store.Store, cfg *config.Config) {
 		fmt.Printf("✓ Store path saved to %s\n", savedTo)
 	}
 	fmt.Println("✓ Run 'statedrift snap' to take more snapshots.")
+	fmt.Println("  Optional collectors are off by default — enable with 'statedrift config enable <name>' (see 'statedrift help config').")
 }
 
 func cmdSnap(s *store.Store, cfg *config.Config) {
@@ -1304,6 +1337,114 @@ func cmdVerifyBundle(path string) {
 			fmt.Printf("Snapshot #%d and later cannot be trusted.\n", brokenAt-1)
 		}
 		os.Exit(1)
+	}
+}
+
+// cmdConfig inspects and edits statedrift's own configuration. This is the
+// one command besides init that writes outside the store: enable/disable
+// flip a single collector switch in the user config file, using the same
+// key-level merge as init's store-path persistence, so hand-edits elsewhere
+// in the file survive. Host state is never touched.
+func cmdConfig(cfg *config.Config) {
+	if len(os.Args) < 3 {
+		cmdConfigShow(cfg)
+		return
+	}
+
+	switch os.Args[2] {
+	case "show":
+		checkArgs("config", os.Args[3:], flagSpec{}, 0)
+		cmdConfigShow(cfg)
+	case "example":
+		checkArgs("config", os.Args[3:], flagSpec{}, 0)
+		data, err := config.ExampleJSON()
+		if err != nil {
+			fatal("building example config: %v", err)
+		}
+		os.Stdout.Write(data)
+	case "enable", "disable":
+		cmdConfigSet(os.Args[2] == "enable")
+	default:
+		fmt.Fprintf(os.Stderr, "unknown config subcommand: %s\n", os.Args[2])
+		fmt.Fprintln(os.Stderr, "usage: statedrift config [show|example|enable <collector>|disable <collector>]")
+		os.Exit(1)
+	}
+}
+
+// cmdConfigShow prints the effective merged config and where each layer
+// comes from, so "why is this collector off on this host" is answerable
+// without knowing the layering rules.
+func cmdConfigShow(cfg *config.Config) {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		fatal("marshaling config: %v", err)
+	}
+	fmt.Println(string(data))
+
+	status := func(p string) string {
+		if p == "" {
+			return "not resolvable"
+		}
+		if _, err := os.Stat(p); err == nil {
+			return "loaded"
+		}
+		return "not present"
+	}
+	fmt.Println("Sources (lowest to highest priority):")
+	fmt.Println("  built-in defaults")
+	fmt.Printf("  %s  (%s)\n", config.UserConfigPath(), status(config.UserConfigPath()))
+	fmt.Printf("  %s  (%s)\n", config.SystemConfigPath(), status(config.SystemConfigPath()))
+	if v := os.Getenv("STATEDRIFT_STORE"); v != "" {
+		fmt.Printf("  STATEDRIFT_STORE=%s  (overrides store_path)\n", v)
+	}
+	if v := os.Getenv("STATEDRIFT_TZ"); v != "" {
+		fmt.Printf("  STATEDRIFT_TZ=%s  (overrides display_tz)\n", v)
+	}
+}
+
+// cmdConfigSet handles `config enable <name>` / `config disable <name>`.
+// After writing it reloads the full layered config and reports the
+// EFFECTIVE state, because the system config outranks the user file and
+// can make the flip a no-op on this host.
+func cmdConfigSet(enable bool) {
+	verb := "disable"
+	if enable {
+		verb = "enable"
+	}
+	if len(os.Args) < 4 || strings.HasPrefix(os.Args[3], "-") {
+		fatal("usage: statedrift config %s <collector>\ncollectors: %s", verb, strings.Join(config.KnownCollectors, ", "))
+	}
+	checkArgs("config", os.Args[4:], flagSpec{}, 0)
+	name := os.Args[3]
+
+	path, err := config.SetCollector(name, enable)
+	if err != nil {
+		fatal("%v", err)
+	}
+	if enable {
+		fmt.Printf("✓ Enabled collector %q in %s\n", name, path)
+	} else {
+		fmt.Printf("✓ Disabled collector %q in %s\n", name, path)
+	}
+
+	reloaded, err := config.Load()
+	if err != nil {
+		return // written fine; effective-state check is best-effort
+	}
+	effective := reloaded.Collectors.IsEnabled(name)
+	if name == "all" {
+		effective = reloaded.Collectors.All
+	}
+	if effective != enable {
+		if !enable && name != "all" && reloaded.Collectors.All {
+			fmt.Fprintf(os.Stderr, "note: \"all\": true still enables %q — run 'statedrift config disable all' as well\n", name)
+		} else {
+			fmt.Fprintf(os.Stderr, "note: %s takes precedence and overrides this setting on this host\n", config.SystemConfigPath())
+		}
+		return
+	}
+	if enable {
+		fmt.Println("  The next snapshot will include it: statedrift snap")
 	}
 }
 
