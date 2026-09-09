@@ -9,6 +9,41 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+### Added
+
+- **Persistent systemd enablement (`service_enablement`).** Snapshots now record
+  which service units are *wired to start*, alongside the existing runtime
+  `services` state. Read straight from systemd's admin layer
+  (`/etc/systemd/system`, `/run/systemd/system`): `<target>.wants/` and
+  `.requires/` links, `/dev/null` masks, and alias links. No `systemctl` call
+  and no `os/exec` — `systemctl list-unit-files` costs ~1s on a normal host
+  (~40% of a full snapshot) and returns several hundred `static` units that
+  carry no enablement decision. Collected under the existing `services` capture
+  section, so no config change is needed. The section is skipped by `diff`
+  unless both snapshots carry it, so an older snapshot or a failed scan can
+  never be read as "every service was disabled at once".
+
+- **Protective-control-removed rules R55–R60 (free tier).** A named rule class
+  for "a guardrail that was present is now gone", generalizing R29 (MAC
+  disabled), R33 (firewall flushed) and R49 (agent permission broadened), with
+  the emphasis on tampering with the monitoring and audit layer itself:
+  - **R55** audit daemon disabled or masked (high)
+  - **R56** monitoring/telemetry package removed (high)
+  - **R57** monitoring/telemetry service disabled or masked (high)
+  - **R58** protective scheduled job removed — backup, integrity/AV scan,
+    log rotation (medium)
+  - **R59** security sysctl loosened to 0 — rp_filter, SYN cookies, ASLR,
+    kptr/dmesg restriction, ptrace scope, unprivileged BPF, protected links (high)
+  - **R60** firewall service disabled or masked (high)
+
+  The service rules key on `service_enablement`, never on runtime `services`: a
+  unit going inactive is a reboot or a deploy, while a unit being disabled or
+  masked is a decision. Runtime stops remain covered by R06 at medium. Each
+  rule's control catalog is a regex on the rule row, so operators can extend or
+  replace it per-ID in `/etc/statedrift/rules.json` without a rebuild.
+
+  Next free rule ID: **R61**.
+
 ---
 
 ## [0.8.3] — 2026-07-26

@@ -360,6 +360,7 @@ only when an audit bundle leaves the operator's premises.
 | `mounts` | `mount_point` | Local filesystem layout | (not Cat B) |
 | `processes` (optional) | `comm` | Process binary name | (not covered) |
 | `services` | unit names | Unit names can leak deployment topology | (not covered) |
+| `service_enablement` (v0.9) | unit names | Same class as `services` — which units are enabled/masked can leak deployment topology. No paths, IPs, users or file contents: only unit names, the targets wanting them, and the alias/mask state | (not covered) |
 | `mac` (v0.4) | all fields | Enforcement mode, policy type name, profile counts — no IPs/hostnames/users/paths | (no Cat B — exempt) |
 | `firewall` (v0.4) | `backend`, `ruleset_hash`, `rules` | Backend enum, opaque SHA-256 ruleset hash, rule count | (not Cat B) |
 | `firewall.rule_list[].rule` (v0.5) | full rule text | Embeds IPs / CIDRs / ports | `--redact-network` (whole-rule hashed, sudoers-style) |

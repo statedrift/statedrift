@@ -231,6 +231,54 @@ func sortFindings(findings []Finding) {
 	}
 }
 
+// Catalogs for the v0.9 protective-control rules (R55-R60). They live as
+// constants so the "which direction is dangerous" logic is written once, and
+// so a reader can see the whole control list in one place. Every one of these
+// rules can still be overridden wholesale by ID in /etc/statedrift/rules.json,
+// which is how an operator adds a site-specific agent or drops a false positive.
+const (
+	// unitWasEnabled matches the service_enablement value of a unit that was
+	// wired to start ("enabled:multi-user.target", "enabled-runtime:...").
+	unitWasEnabled = `^enabled`
+	// unitNowOff matches the value after that wiring is gone: empty (the unit
+	// left the enablement layer, which the diff reports as a "removed" change
+	// — a disable or an uninstall) or masked (systemd refuses to start it).
+	unitNowOff = `^(masked.*)?$`
+
+	// monitoringStems lists the observability and logging agents whose
+	// disappearance is the "who turned off the smoke detector" signal. The
+	// audit daemon is deliberately NOT here: it has its own rule (R55) so one
+	// event produces one finding rather than two.
+	monitoringStems = `(rsyslog|syslog-ng|prometheus[a-z0-9_-]*|[a-z0-9_-]*node[-_]exporter|netdata|collectd|telegraf|` +
+		`zabbix-agent[0-9]*|filebeat|metricbeat|auditbeat|fluentd|fluent-bit|osqueryd?|falco|wazuh-agent|nrpe|` +
+		`nagios[a-z-]*|datadog-agent|amazon-cloudwatch-agent|sysstat)`
+	// The package form does cover the audit daemon: there is no package-level
+	// R55, so R56 is the only rule that would report auditd being uninstalled.
+	monitoringPackageRe = `(?i)^(auditd|audispd-plugins|` + monitoringStems + `)$`
+	monitoringUnitRe    = `(?i)^` + monitoringStems + `\.service$`
+
+	// firewallUnitRe lists the units that carry a host packet filter.
+	firewallUnitRe = `(?i)^(firewalld|nftables|iptables|ip6tables|ufw|netfilter-persistent)\.service$`
+
+	// auditUnitRe — the audit daemon gets its own rule (and its own name in
+	// output) because tampering with the audit trail is the single highest
+	// signal in this class.
+	auditUnitRe = `(?i)^(auditd|audit|audispd)\.service$`
+
+	// securitySysctlRe lists hardening sysctls whose *loosened* value is 0.
+	// Params that loosen toward 1 (ip_forward, accept_redirects,
+	// accept_source_route) are deliberately absent: one rule cannot express
+	// both directions, and R08 already covers kernel-param changes broadly.
+	securitySysctlRe = `^(net\.ipv4\.conf\.[^.]+\.rp_filter|net\.ipv4\.tcp_syncookies|` +
+		`net\.ipv4\.icmp_echo_ignore_broadcasts|kernel\.randomize_va_space|kernel\.kptr_restrict|` +
+		`kernel\.dmesg_restrict|kernel\.yama\.ptrace_scope|kernel\.unprivileged_bpf_disabled|` +
+		`fs\.protected_hardlinks|fs\.protected_symlinks)$`
+
+	// protectiveCronRe matches the job text of scheduled protective work —
+	// backups, integrity scans, AV signature updates, log rotation.
+	protectiveCronRe = `(?i)(backup|audit|monitor|node[-_]exporter|clamav|freshclam|rkhunter|aide|logrotate)`
+)
+
 // DefaultRules returns the built-in ruleset.
 // These rules cover common infrastructure anomalies and require no license.
 // Pro-tier rules (Pro: true) require a valid Pro license to evaluate.
@@ -684,6 +732,94 @@ func DefaultRules() []Rule {
 			Severity:    SeverityLow,
 			Section:     "harness.model",
 			ChangeType:  "modified",
+		},
+		// v0.9 — the protective-control-removed class (free). These rules share
+		// one frame: a guardrail that was present is now gone or weakened. They
+		// generalize what R29 (MAC disabled), R33 (firewall flushed) and R49
+		// (agent permission broadened) already do, with the emphasis on
+		// tampering with the monitoring and audit layer itself.
+		//
+		// The service rules key on service_enablement (the persistent
+		// /etc/systemd/system decision layer), never on the runtime "services"
+		// section: a unit going inactive is a reboot or a deploy, while a unit
+		// being disabled or masked is a decision. Runtime stops remain covered
+		// by R06 at medium severity. ChangeType is "any" because a disable
+		// arrives as a "removed" change and a mask as a "modified" one; the
+		// old/new conditions are what actually pin the dangerous direction.
+		{
+			ID:          "R55_AUDIT_DAEMON_DISABLED",
+			Name:        "Audit daemon disabled",
+			Description: "The host audit daemon stopped being wired to start — its enablement symlink was removed or the unit was masked. auditd is the system's own tamper record; disabling it is the standard way to go quiet before or during an intrusion, and unlike a transient stop it persists across a reboot. No metrics tool reports this.",
+			Severity:    SeverityHigh,
+			Section:     "service_enablement",
+			ChangeType:  "any",
+			Match: []Condition{
+				{Field: "key", Op: "regex", Value: auditUnitRe},
+				{Field: "old", Op: "regex", Value: unitWasEnabled},
+				{Field: "new", Op: "regex", Value: unitNowOff},
+			},
+		},
+		{
+			ID:          "R56_MONITORING_PACKAGE_REMOVED",
+			Name:        "Monitoring or telemetry package removed",
+			Description: "A package providing observability, logging or audit coverage was uninstalled (exporter, agent, log shipper, audit daemon). Removing the thing that would have reported an incident is itself the incident signal; it also silently ends whatever alerting depended on it.",
+			Severity:    SeverityHigh,
+			Section:     "packages",
+			ChangeType:  "removed",
+			Match: []Condition{
+				{Field: "key", Op: "regex", Value: monitoringPackageRe},
+			},
+		},
+		{
+			ID:          "R57_MONITORING_SERVICE_DISABLED",
+			Name:        "Monitoring or telemetry service disabled",
+			Description: "A monitoring, logging or audit service stopped being wired to start — disabled or masked. The package is still installed, so an inventory check still passes, but the agent will not come back after a reboot: the quietest way to blind a host's observability.",
+			Severity:    SeverityHigh,
+			Section:     "service_enablement",
+			ChangeType:  "any",
+			Match: []Condition{
+				{Field: "key", Op: "regex", Value: monitoringUnitRe},
+				{Field: "old", Op: "regex", Value: unitWasEnabled},
+				{Field: "new", Op: "regex", Value: unitNowOff},
+			},
+		},
+		{
+			ID:          "R58_PROTECTIVE_CRON_REMOVED",
+			Name:        "Protective scheduled job removed",
+			Description: "A scheduled job doing protective work — a backup, an integrity or AV scan, a metrics push, log rotation — disappeared from the cron inventory. Lower severity than the service rules because job text is heuristic, but a backup or scan that silently stopped running is only ever noticed when it is needed.",
+			Severity:    SeverityMedium,
+			Section:     "cron",
+			ChangeType:  "removed",
+			Match: []Condition{
+				// The job command lives in OldValue ("user=... schedule=... cmd=..."),
+				// while Key is only the source file, so the match is on old.
+				{Field: "old", Op: "regex", Value: protectiveCronRe},
+			},
+		},
+		{
+			ID:          "R59_SECURITY_SYSCTL_LOOSENED",
+			Name:        "Security sysctl loosened",
+			Description: "A kernel hardening parameter was set to 0, switching off the protection it gates (reverse-path filtering, SYN cookies, ASLR, kernel-pointer or dmesg restriction, ptrace scoping, unprivileged BPF, protected links). Each is a one-line rollback of a hardening baseline and a common preparatory step before exploitation.",
+			Severity:    SeverityHigh,
+			Section:     "kernel_params",
+			ChangeType:  "modified",
+			Match: []Condition{
+				{Field: "key", Op: "regex", Value: securitySysctlRe},
+				{Field: "new", Op: "eq", Value: "0"},
+			},
+		},
+		{
+			ID:          "R60_FIREWALL_SERVICE_DISABLED",
+			Name:        "Firewall service disabled",
+			Description: "The host packet-filter service stopped being wired to start. Complements R33 (ruleset flushed): flushing empties the rules now, disabling the unit guarantees they never come back after a reboot — the durable version of the same move.",
+			Severity:    SeverityHigh,
+			Section:     "service_enablement",
+			ChangeType:  "any",
+			Match: []Condition{
+				{Field: "key", Op: "regex", Value: firewallUnitRe},
+				{Field: "old", Op: "regex", Value: unitWasEnabled},
+				{Field: "new", Op: "regex", Value: unitNowOff},
+			},
 		},
 		// Pro rules
 		{

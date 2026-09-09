@@ -39,8 +39,17 @@ func Compare(old, new *collector.Snapshot) *Result {
 	// Packages
 	diffMap("packages", old.Packages, new.Packages, r, false)
 
-	// Services
+	// Services (runtime state)
 	diffMap("services", old.Services, new.Services, r, false)
+
+	// v0.9 — persistent systemd enablement. Diffed only when both snapshots
+	// carry the section: nil means "snapshot predates v0.9" or "the scan
+	// failed", and diffing against nil would report every enabled unit as
+	// removed — exactly what the protective-control rules (R55/R57/R60) alarm
+	// on. Skipping is the only safe reading of a missing side.
+	if old.ServiceEnablement != nil && new.ServiceEnablement != nil {
+		diffMap("service_enablement", old.ServiceEnablement, new.ServiceEnablement, r, false)
+	}
 
 	// Network interfaces
 	diffInterfaces(old.Network.Interfaces, new.Network.Interfaces, r)
@@ -352,7 +361,7 @@ var KnownSections = []string{
 	"host", "kernel_counters.ip", "kernel_counters.tcp", "kernel_counters.udp",
 	"kernel_params", "listening_ports", "mac", "modules", "mounts",
 	"multicast_groups", "network.dns", "network.interfaces", "network.routes",
-	"nic_drivers", "packages", "processes", "services", "sockets",
+	"nic_drivers", "packages", "processes", "service_enablement", "services", "sockets",
 	"ssh_keys", "sudoers", "timers", "users",
 }
 
