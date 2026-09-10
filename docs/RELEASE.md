@@ -203,6 +203,7 @@ One-time setups already complete (kept for reference):
 |---|---|---|---|
 | v0.2.0 | `af34f27` | 2026-04-29T00:34:26Z | First public release. Used `--draft` as a safety net: previewed in the UI, then promoted with `gh release edit v0.2.0 --draft=false`. |
 | v0.3.0 | `d2a5a78` | 2026-05-04T22:34:56Z | Five always-on security-signal collectors (Phases A–E) and 12 new anomaly rules (R14–R25). Skipped `--draft`; pushed main, waited for CI green on the new commits, then tagged + published. |
+| v0.9.0 | `b0ef2ae` | 2026-09-10T01:31Z | Protective-control-removed rules R55–R60 plus the `service_enablement` capture (#43, #44). Smoke-tested the packaged binary before tagging: two live snapshots, `service_enablement` present, `analyze` reporting 60 rules, chain verified. Placeholder `LICENSE_SECRET` (no Pro features). |
 
 `LICENSE_SECRET` rotation status is tracked in
 `project_license_secret_rotation.md`. See `CHANGELOG.md` for per-release
