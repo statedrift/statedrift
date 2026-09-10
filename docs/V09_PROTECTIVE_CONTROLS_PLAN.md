@@ -3,7 +3,7 @@
 **Status: IMPLEMENTED on `main` (uncommitted).** `gofmt` clean, `go vet ./...` and
 `go test ./...` green.
 
-Implements `docs/design/protective-controls.md` §8 steps 1 and 2: the persistent
+Implements the internal protective-controls design brief, §8 steps 1 and 2: the persistent
 service-enablement prerequisite, then the Tier-A core rules R55–R60. All free tier.
 No new collector switch, no new config knob, no Pro gating, no schema-version bump.
 
@@ -219,7 +219,6 @@ that run is what surfaced the auditd double-fire between R55 and R57.
   users or file contents).
 - `CHANGELOG.md` `[Unreleased]` → Added: the section and R55–R60, with the cost
   rationale. Next free rule ID: **R61**.
-- `CLAUDE.md` (local, gitignored): new v0.9 section; `R01–R60 free`, next ID R61.
 - `README.md`: `service_enablement` row in the "What gets captured" table; rule-count
   mentions `54 → 60`; free-tier line `R01–R54 → R01–R60`.
 
@@ -259,5 +258,5 @@ that run is what surfaced the auditd double-fire between R55 and R57.
 - [x] `diff_test.go` — transition shapes + nil-side guard + cross-layer binding (R55/R60 fire, runtime stop does not), mutation-verified
 - [x] `gofmt -w .`, `go vet ./...`, `go test ./...` (all green; CLI suite 173 s)
 - [x] Live check on a real host: 54 entries, snapshot time unchanged
-- [x] DESIGN §4.5 row, CHANGELOG, CLAUDE.md, README
+- [x] DESIGN §4.5 row, CHANGELOG, README
 - [ ] Commit + PR (not done — no commit was requested)

@@ -9,6 +9,7 @@ CLAUDE.md
 docs/*_by_claude.*
 docs/*-implementation-plan.*
 docs/*-prompt.*
+docs/design/
 manual_test_config.txt
 .git.old/
 
