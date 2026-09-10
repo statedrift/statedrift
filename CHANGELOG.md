@@ -9,6 +9,10 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+---
+
+## [0.9.1] — 2026-09-10
+
 ### Fixed
 
 - **Harness: enterprise managed policy is now collected** (#46). The harness
