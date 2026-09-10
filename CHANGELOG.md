@@ -9,6 +9,16 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+---
+
+## [0.9.0] — 2026-09-10
+
+A named rule class for *protective control removed* — "a guardrail that was
+present is now gone" — with the emphasis on tampering with the monitoring and
+audit layer itself. Six new free-tier rules, plus the persistent systemd
+enablement capture they needed to fire accurately rather than noisily. No
+schema change (still 0.5), no Pro features.
+
 ### Added
 
 - **Persistent systemd enablement (`service_enablement`).** Snapshots now record
