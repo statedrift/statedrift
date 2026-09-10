@@ -48,6 +48,14 @@ operators, with an optional Pro tier for fleet baselining and reporting.
 - **v0.8.3** — `statedrift config` command: show the effective config
   and its sources, print a full example, and enable/disable optional
   collectors as a one-liner. README uninstall documentation.
+- **v0.9.0** — Protective-control-removed rule class (R55-R60): audit
+  daemon, monitoring services/packages, protective cron entries,
+  security sysctls, firewall service. Backed by a new
+  `service_enablement` capture of persistent systemd enablement, read
+  from the filesystem (no `systemctl` calls).
+- **v0.9.1** — `harness` collector covers the enterprise managed policy
+  (`/etc/claude-code/managed-settings.json`) — the highest-precedence
+  scope of Claude Code's permission merge, previously invisible.
 
 ## Planned
 
