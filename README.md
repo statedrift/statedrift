@@ -178,7 +178,7 @@ Opt-in collectors extend the snapshot further. Enable one with `statedrift confi
 | `containers` | Running-container inventory from `/proc` cgroup membership — runtime-agnostic (Docker, containerd, CRI-O, podman) | A container appearing (R37), disappearing (R38), or turning privileged (R39) |
 | `gpu` | NVIDIA GPU inventory from the driver's `/proc` interface | GPU added/removed, driver or VBIOS drift (R40–R43) |
 | `dataplane` | SR-IOV VF counts and DPDK-bound NICs from `/sys` — devices handed to a userspace `vfio-pci`/`uio` driver, invisible to the kernel stack and its firewall | A NIC silently rebound to userspace, VF counts changing (R44–R47) |
-| `harness` | Your AI agent's own config: Claude Code's `settings.json`, `.mcp.json`, and the user-scope `~/.claude.json` that `claude mcp add` writes to | A broadened tool permission, a new MCP server or hook, a model change (R49–R54) |
+| `harness` | Your AI agent's own config: Claude Code's `settings.json`, `.mcp.json`, the user-scope `~/.claude.json` that `claude mcp add` writes to, and the enterprise policy `/etc/claude-code/managed-settings.json` (project-scope files: add the project dir to `harness.roots`) | A broadened tool permission, a new MCP server or hook, a model change (R49–R54) |
 
 `filesystem` growth is bounded by size and file-count caps; file paths and hashes are stored as-is (system config paths, nothing sensitive). The `harness` collector never stores secrets — MCP env values and embedded credentials are dropped at collect time, keeping only key names and a redacted fingerprint (details in the box below).
 

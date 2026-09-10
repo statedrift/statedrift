@@ -32,8 +32,15 @@ import (
 )
 
 // harnessFilenames are the config files looked for in each scanned root. All
-// three share a JSON superset shape, so one parser handles them uniformly.
-var harnessFilenames = []string{"settings.json", "settings.local.json", ".mcp.json"}
+// four share a JSON superset shape, so one parser handles them uniformly.
+// managed-settings.json is the enterprise managed policy — the
+// highest-precedence scope in Claude Code's merge order (issue #46).
+var harnessFilenames = []string{"settings.json", "settings.local.json", ".mcp.json", "managed-settings.json"}
+
+// managedPolicyDir is the enterprise managed-policy directory, scanned as a
+// default root: a change there rewrites what every agent on the host may
+// touch. Package var so tests can point it at a fixture instead of /etc.
+var managedPolicyDir = "/etc/claude-code"
 
 // collectHarness discovers and parses harness config under the configured roots
 // (plus the daemon user's ~/.claude by default). A root named ".claude" also
@@ -69,14 +76,16 @@ func collectHarness(cfg *config.Config) (*HarnessInventory, error) {
 }
 
 // harnessRoots returns the directories scanned for harness config: the daemon
-// user's ~/.claude (best-effort — skipped if the home dir is unknown) followed
-// by any operator-configured roots. Roots are directories; each is scanned for
-// the harnessFilenames.
+// user's ~/.claude (best-effort — skipped if the home dir is unknown), the
+// enterprise managed-policy dir, then any operator-configured roots. Roots are
+// directories; each is scanned for the harnessFilenames. Project-scope config
+// is covered by adding the project directory to harness.roots.
 func harnessRoots(cfg *config.Config) []string {
 	var roots []string
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		roots = append(roots, filepath.Join(home, ".claude"))
 	}
+	roots = append(roots, managedPolicyDir)
 	roots = append(roots, cfg.Harness.Roots...)
 	return roots
 }

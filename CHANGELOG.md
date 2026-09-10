@@ -9,6 +9,17 @@ Format: [Semantic Versioning](https://semver.org/). Types of changes:
 
 ## [Unreleased]
 
+### Fixed
+
+- **Harness: enterprise managed policy is now collected** (#46). The harness
+  collector scans `managed-settings.json` as a fourth config filename and
+  `/etc/claude-code` as a default root, so a change to the highest-precedence
+  scope of Claude Code's permission merge — the one file that rewrites what
+  every agent on the host may touch — now lands in the diff and trips the
+  harness rules like any other scope. Previously it was invisible twice over
+  (filename not scanned, directory not a root). Reported by a reviewer on the
+  launch blog post. No schema change (additive; still 0.5).
+
 ---
 
 ## [0.9.0] — 2026-09-10
