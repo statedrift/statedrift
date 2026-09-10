@@ -18,14 +18,26 @@ func writeHarnessFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-// harnessCfg builds a config whose only scanned root is dir, and points HOME at
-// an empty directory so the default ~/.claude scan finds nothing.
+// harnessCfg builds a config whose only scanned root is dir, points HOME at
+// an empty directory so the default ~/.claude scan finds nothing, and swaps
+// the managed-policy dir for an empty fixture so a real /etc/claude-code on
+// the dev machine can't bleed into the test.
 func harnessCfg(t *testing.T, dir string) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	isolateManagedPolicy(t)
 	cfg := config.Default()
 	cfg.Harness.Roots = []string{dir}
 	return cfg
+}
+
+// isolateManagedPolicy points the managed-policy scan at an empty fixture dir,
+// for every test that reaches collectHarness.
+func isolateManagedPolicy(t *testing.T) {
+	t.Helper()
+	old := managedPolicyDir
+	managedPolicyDir = t.TempDir()
+	t.Cleanup(func() { managedPolicyDir = old })
 }
 
 const (
@@ -177,6 +189,7 @@ func writeUserConfig(t *testing.T, home, noise string) {
 func TestCollectHarnessUserScopeClaudeJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	isolateManagedPolicy(t)
 	writeUserConfig(t, home, "noise-a")
 
 	inv, err := collectHarness(config.Default())
@@ -218,6 +231,7 @@ func TestCollectHarnessUserScopeChurnInvisible(t *testing.T) {
 	// snapshot on a developer host would carry a spurious diff.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	isolateManagedPolicy(t)
 
 	writeUserConfig(t, home, "noise-a")
 	before, err := collectHarness(config.Default())
@@ -264,5 +278,47 @@ func TestMCPFingerprintStableAcrossSecretRotation(t *testing.T) {
 	c := ccMCPServer{Command: "srv", Env: map[string]string{"API_KEY": "value-one", "EXTRA": "x"}}
 	if mcpFingerprint(a) == mcpFingerprint(c) {
 		t.Error("fingerprint must change when an env key is added")
+	}
+}
+
+// TestCollectHarnessManagedPolicy covers issue #46: the enterprise managed
+// policy file is collected both from the default managed-policy dir and, by
+// filename, from any operator-configured root.
+func TestCollectHarnessManagedPolicy(t *testing.T) {
+	dir := t.TempDir()
+	writeHarnessFile(t, dir, "managed-settings.json", `{
+		"permissions": {"deny": ["Bash(curl *)"], "defaultMode": "plan"}
+	}`)
+
+	// By filename, inside an operator root.
+	inv, err := collectHarness(harnessCfg(t, dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv == nil || inv.TotalConfigs != 1 {
+		t.Fatalf("expected 1 config from operator root, got %+v", inv)
+	}
+	if base := filepath.Base(inv.Configs[0].Source); base != "managed-settings.json" {
+		t.Fatalf("source = %q, want managed-settings.json", inv.Configs[0].Source)
+	}
+	if inv.Configs[0].Permissions.DefaultMode != "plan" {
+		t.Errorf("default_mode = %q, want plan", inv.Configs[0].Permissions.DefaultMode)
+	}
+
+	// From the default managed-policy dir, with no operator roots at all.
+	cfg := harnessCfg(t, t.TempDir())
+	cfg.Harness.Roots = nil
+	writeHarnessFile(t, managedPolicyDir, "managed-settings.json", `{
+		"permissions": {"deny": ["Bash(rm *)"]}
+	}`)
+	inv, err = collectHarness(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv == nil || inv.TotalConfigs != 1 {
+		t.Fatalf("expected 1 config from managed-policy dir, got %+v", inv)
+	}
+	if want := filepath.Join(managedPolicyDir, "managed-settings.json"); inv.Configs[0].Source != want {
+		t.Errorf("source = %q, want %q", inv.Configs[0].Source, want)
 	}
 }
