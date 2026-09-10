@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/statedrift/statedrift/internal/collector"
+	"github.com/statedrift/statedrift/internal/rules"
 )
 
 func baseSnapshot() *collector.Snapshot {
@@ -1186,6 +1187,164 @@ func TestDiffSSHKeysUnchanged(t *testing.T) {
 	for _, c := range r.Changes {
 		if c.Section == "ssh_keys" {
 			t.Errorf("unexpected ssh_keys change on identical input: %+v", c)
+		}
+	}
+}
+
+// --- v0.9 service_enablement (persistent systemd enablement) ---
+
+func TestDiffServiceEnablement(t *testing.T) {
+	old := &collector.Snapshot{ServiceEnablement: map[string]string{
+		"auditd.service":    "enabled:multi-user.target",
+		"firewalld.service": "enabled:multi-user.target",
+		"nginx.service":     "enabled:multi-user.target",
+	}}
+	new := &collector.Snapshot{ServiceEnablement: map[string]string{
+		// disabled: leaves the enablement layer entirely
+		"firewalld.service": "masked",
+		"nginx.service":     "enabled:multi-user.target",
+		"telegraf.service":  "enabled:multi-user.target",
+	}}
+
+	r := Compare(old, new)
+	want := map[string]Change{
+		"auditd.service":    {Section: "service_enablement", Type: "removed", Key: "auditd.service", OldValue: "enabled:multi-user.target"},
+		"firewalld.service": {Section: "service_enablement", Type: "modified", Key: "firewalld.service", OldValue: "enabled:multi-user.target", NewValue: "masked"},
+		"telegraf.service":  {Section: "service_enablement", Type: "added", Key: "telegraf.service", NewValue: "enabled:multi-user.target"},
+	}
+	got := map[string]Change{}
+	for _, c := range r.Changes {
+		if c.Section == "service_enablement" {
+			got[c.Key] = c
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d service_enablement changes, want %d: %v", len(got), len(want), got)
+	}
+	for key, wc := range want {
+		if got[key] != wc {
+			t.Errorf("%s: got %+v, want %+v", key, got[key], wc)
+		}
+	}
+}
+
+// A snapshot predating v0.9 (or one whose scan failed) carries a nil section.
+// Diffing against nil would report every enabled unit as removed and fire the
+// protective-control rules across the whole host, so the section is skipped
+// unless both sides carry it.
+func TestDiffServiceEnablementNilSideSkipped(t *testing.T) {
+	populated := map[string]string{"auditd.service": "enabled:multi-user.target"}
+
+	cases := []struct {
+		name     string
+		old, new *collector.Snapshot
+	}{
+		{"nil old", &collector.Snapshot{}, &collector.Snapshot{ServiceEnablement: populated}},
+		{"nil new", &collector.Snapshot{ServiceEnablement: populated}, &collector.Snapshot{}},
+		{"nil both", &collector.Snapshot{}, &collector.Snapshot{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, c := range Compare(tc.old, tc.new).Changes {
+				if c.Section == "service_enablement" {
+					t.Errorf("emitted %+v; a nil side must produce no changes", c)
+				}
+			}
+		})
+	}
+}
+
+// An empty (but non-nil) map is a real observation — a host with nothing
+// enabled — and must diff normally.
+func TestDiffServiceEnablementEmptyIsNotNil(t *testing.T) {
+	old := &collector.Snapshot{ServiceEnablement: map[string]string{"auditd.service": "enabled:multi-user.target"}}
+	new := &collector.Snapshot{ServiceEnablement: map[string]string{}}
+
+	found := false
+	for _, c := range Compare(old, new).Changes {
+		if c.Section == "service_enablement" && c.Key == "auditd.service" && c.Type == "removed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a removed change when the enablement layer is emptied")
+	}
+}
+
+// evaluateRules runs a diff result through the same conversion the CLI does
+// (cmd/statedrift/main.go) and returns the rule IDs that fired. It is the only
+// place a test binds the two layers together: everywhere else each layer pins
+// its own string literals, so a coordinated rename of a section name — or a
+// change to which ChangeType a transition produces — could leave a rule
+// matching a shape nothing emits, with the whole suite still green.
+func evaluateRules(r *Result) map[string]bool {
+	var changes []rules.Change
+	for _, c := range r.Changes {
+		changes = append(changes, rules.Change{
+			Section:  c.Section,
+			Type:     c.Type,
+			Key:      c.Key,
+			OldValue: c.OldValue,
+			NewValue: c.NewValue,
+			Counter:  c.Counter,
+		})
+	}
+	fired := map[string]bool{}
+	for _, f := range rules.Evaluate(rules.DefaultRules(), changes, false) {
+		fired[f.Rule.ID] = true
+	}
+	return fired
+}
+
+// A disable removes the unit from the enablement layer entirely, so the diff
+// emits a "removed" change — R55 must fire on what Compare actually produces,
+// not on a hand-written literal.
+func TestServiceEnablementDisableFiresR55(t *testing.T) {
+	old := &collector.Snapshot{ServiceEnablement: map[string]string{
+		"auditd.service": "enabled:multi-user.target",
+	}}
+	new := &collector.Snapshot{ServiceEnablement: map[string]string{}}
+
+	if !evaluateRules(Compare(old, new))["R55_AUDIT_DAEMON_DISABLED"] {
+		t.Error("R55 did not fire on a real diff of an auditd disable; " +
+			"the diff's section/type/values and the rule's Match have diverged")
+	}
+}
+
+// A mask keeps the unit in the layer with a new value, so the diff emits a
+// "modified" change — the other shape the service rules must cover.
+func TestServiceEnablementMaskFiresR60(t *testing.T) {
+	old := &collector.Snapshot{ServiceEnablement: map[string]string{
+		"firewalld.service": "enabled:multi-user.target",
+	}}
+	new := &collector.Snapshot{ServiceEnablement: map[string]string{
+		"firewalld.service": "masked",
+	}}
+
+	if !evaluateRules(Compare(old, new))["R60_FIREWALL_SERVICE_DISABLED"] {
+		t.Error("R60 did not fire on a real diff of a firewalld mask; " +
+			"the diff's section/type/values and the rule's Match have diverged")
+	}
+}
+
+// The counterpart: a runtime stop travels the same pipeline and must reach no
+// protective-control rule. This is the false-positive the service_enablement
+// section exists to prevent, asserted end-to-end rather than on a literal.
+func TestRuntimeStopFiresNoControlRuleEndToEnd(t *testing.T) {
+	old := &collector.Snapshot{Services: map[string]string{
+		"auditd.service":    "active (running)",
+		"firewalld.service": "active (running)",
+	}}
+	new := &collector.Snapshot{Services: map[string]string{
+		"auditd.service":    "inactive (dead)",
+		"firewalld.service": "inactive (dead)",
+	}}
+
+	fired := evaluateRules(Compare(old, new))
+	for _, id := range []string{"R55_AUDIT_DAEMON_DISABLED", "R57_MONITORING_SERVICE_DISABLED",
+		"R60_FIREWALL_SERVICE_DISABLED"} {
+		if fired[id] {
+			t.Errorf("%s fired on a runtime service stop", id)
 		}
 	}
 }

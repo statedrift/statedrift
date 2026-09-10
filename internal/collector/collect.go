@@ -113,6 +113,14 @@ func Collect(prevHash string, cfg *config.Config) (*Snapshot, error) {
 			snap.Services = map[string]string{}
 			collectorErrors = append(collectorErrors, fmt.Sprintf("services: %v", err))
 		}
+		snap.ServiceEnablement, err = collectServiceEnablement()
+		if err != nil {
+			// Left nil, not empty: the diff skips the section unless both
+			// snapshots carry it, so a failed scan cannot be mistaken for
+			// every service on the host being disabled at once.
+			snap.ServiceEnablement = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("service_enablement: %v", err))
+		}
 	}
 
 	// Build inode→process map once; shared by listening_ports and connections collectors.
@@ -388,6 +396,11 @@ func CollectPartial(prevSnap *Snapshot, due map[string]bool, prevHash string, cf
 		if err != nil {
 			snap.Services = map[string]string{}
 			collectorErrors = append(collectorErrors, fmt.Sprintf("services: %v", err))
+		}
+		snap.ServiceEnablement, err = collectServiceEnablement()
+		if err != nil {
+			snap.ServiceEnablement = nil
+			collectorErrors = append(collectorErrors, fmt.Sprintf("service_enablement: %v", err))
 		}
 	}
 

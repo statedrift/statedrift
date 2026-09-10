@@ -19,12 +19,25 @@ type Snapshot struct {
 	Timestamp  time.Time `json:"timestamp"`
 	PrevHash   string    `json:"prev_hash"`
 
-	Host           Host              `json:"host"`
-	Network        Network           `json:"network"`
-	KernelParams   map[string]string `json:"kernel_params"`
-	Packages       map[string]string `json:"packages"`
-	Services       map[string]string `json:"services"`
-	ListeningPorts []ListeningPort   `json:"listening_ports"`
+	Host         Host              `json:"host"`
+	Network      Network           `json:"network"`
+	KernelParams map[string]string `json:"kernel_params"`
+	Packages     map[string]string `json:"packages"`
+	Services     map[string]string `json:"services"`
+
+	// ServiceEnablement records systemd's *persistent* enablement decisions —
+	// which service units are wired to start, masked, or aliased — read from the
+	// admin layer (/etc/systemd/system, /run/systemd/system). It is deliberately
+	// distinct from Services, which is transient runtime state: a unit going
+	// inactive is a reboot or a deploy, whereas a unit being disabled or masked
+	// is a decision that survives one. Values are "enabled[-runtime]:<targets>",
+	// "masked[-runtime]", or "alias[-runtime]:<unit>".
+	//
+	// nil (not empty) on pre-v0.9 snapshots, when the "services" capture section
+	// is disabled, and when the scan failed — the diff skips the section unless
+	// both sides carry it, so a failed read can never look like a mass disable.
+	ServiceEnablement map[string]string `json:"service_enablement,omitempty"`
+	ListeningPorts    []ListeningPort   `json:"listening_ports"`
 
 	MulticastGroups []MulticastGroup `json:"multicast_groups,omitempty"`
 	Connections     []Connection     `json:"connections,omitempty"`

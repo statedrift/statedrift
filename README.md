@@ -47,7 +47,7 @@ A diff lists *everything* that changed. `analyze` runs the built-in rule engine 
 ```console
 $ statedrift analyze
 statedrift analyze — 2026-06-30T14:00:00Z → 2026-06-30T15:00:00Z
-  2 material changes, 54 rules evaluated
+  2 material changes, 60 rules evaluated
 
   [HIGH] Kernel parameter changed (1 match)
     A sysctl value was changed. Security-relevant params (ip_forward, rp_filter) are high severity.
@@ -161,6 +161,7 @@ Every snapshot records:
 | `kernel_params` | Selected sysctl values | `/proc/sys/` |
 | `packages` | Installed package names and versions | `dpkg-query` or `rpm -qa` |
 | `services` | Systemd unit names and states | `systemctl list-units` |
+| `service_enablement` | Which units are *wired to start* — enabled, masked, or aliased — the decision behind the runtime state | `/etc/systemd/system`, `/run/systemd/system` |
 | `listening_ports` | TCP sockets in LISTEN state | `/proc/net/tcp` |
 | `mac` | SELinux/AppArmor enforcement mode and policy | `/sys/fs/selinux`, `/sys/kernel/security/apparmor` |
 | `firewall` | Packet-filter ruleset identity (SHA-256 + rule count) plus the parsed per-rule list for added/removed/reordered diff (rules embed IPs/ports — redacted by `--redact-network`) | `nft list ruleset`, `iptables-save` |
@@ -491,7 +492,7 @@ statedrift analyze --json | jq '.[] | select(.severity=="critical")'
 ```console
 $ statedrift analyze
 statedrift analyze — 2026-06-30T14:00:12Z → 2026-06-30T15:00:12Z
-  3 material changes, 54 rules evaluated
+  3 material changes, 60 rules evaluated
 
   [HIGH] New user account (1 match)
     A new entry was added to /etc/passwd. New accounts created outside a change window may be backdoors.
@@ -509,7 +510,7 @@ statedrift analyze — 2026-06-30T14:00:12Z → 2026-06-30T15:00:12Z
 | `--fail-on <severity>` | Exit 1 if any finding is at or above `low`/`medium`/`high`/`critical`; without it, always exits 0 |
 | `--json` | Emit findings as a JSON array |
 
-The free tier evaluates all built-in rules (R01–R54) except the three `[PRO]` rules R11–R13. Rules are declarative JSON — see `statedrift help analyze` and [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for writing your own.
+The free tier evaluates all built-in rules (R01–R60) except the three `[PRO]` rules R11–R13. Rules are declarative JSON — see `statedrift help analyze` and [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for writing your own.
 
 ---
 

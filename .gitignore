@@ -7,10 +7,8 @@ CLAUDE.md
 
 # Internal docs not for public repo
 docs/*_by_claude.*
-docs/*-implementation-plan.*
-docs/*-prompt.*
+docs/design/
 manual_test_config.txt
-.git.old/
 
 # Claude Code local runtime state (not for the repo)
 .claude/scheduled_tasks.lock
